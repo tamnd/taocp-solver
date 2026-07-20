@@ -28,6 +28,9 @@ func TestDefaultManifestIsStratifiedAndPriced(t *testing.T) {
 		if !ok || !card.Available {
 			t.Errorf("free profile %q has no published price", profile.Model)
 		}
+		if profile.MaxRetries == nil || *profile.MaxRetries != 0 {
+			t.Errorf("free profile %q retries = %v", profile.Model, profile.MaxRetries)
+		}
 	}
 	sol := manifest.Models[len(manifest.Models)-6]
 	if len(sol.Modes) != 2 || sol.Modes[0] != solver.ModeFast || sol.Modes[1] != solver.ModeSlow {
@@ -71,5 +74,27 @@ func TestManifestRejectsDuplicateNamesAndInvalidModes(t *testing.T) {
 	manifest.Models[0].Modes = []solver.Mode{"medium"}
 	if err := manifest.Validate(); err == nil {
 		t.Fatal("expected invalid mode error")
+	}
+}
+
+func TestRateLimitedCasesAreDeferredAndReplaced(t *testing.T) {
+	t.Parallel()
+	first := Case{Model: ModelProfile{Name: "free"}, Exercise: Exercise{Section: "1.2.1", Number: 1}, Mode: solver.ModeFast, Status: "provider_error", Error: "HTTP 429: FreeUsageLimitError"}
+	if !isRateLimited(first) {
+		t.Fatal("expected rate-limit classification")
+	}
+	cases := []Case{first}
+	completed := first
+	completed.Status = "completed"
+	completed.Error = ""
+	completed.RateLimitDeferrals = 1
+	upsertCase(&cases, completed)
+	if len(cases) != 1 || cases[0].Status != "completed" || cases[0].RateLimitDeferrals != 1 {
+		t.Fatalf("cases = %+v", cases)
+	}
+	ordinary := first
+	ordinary.Error = "connection reset"
+	if isRateLimited(ordinary) {
+		t.Fatal("ordinary provider error was classified as rate limited")
 	}
 }

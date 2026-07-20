@@ -79,6 +79,7 @@ func runMatrix(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	source := fs.String("source", defaults.TAOCPRoot, "TAOCP source repository")
 	timeoutText := fs.String("timeout", defaults.Timeout.String(), "timeout per model request")
 	retries := fs.Int("retries", defaults.MaxRetries, "retries for transient API failures")
+	deferredRateLimitRetries := fs.Int("deferred-rate-limit-retries", 1, "retry rate-limited cases after all other cases finish")
 	parallel := fs.Int("parallel", defaults.Parallel, "parallel model and exercise cases")
 	resume := fs.Bool("resume", false, "reuse completed cases and fixed references")
 	models := fs.String("models", "", "comma-separated profile names to run")
@@ -161,7 +162,7 @@ func runMatrix(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	runner := matrix.Runner{
 		Manifest: manifest, Repository: exercise.NewRepository(*source), OutputRoot: *output,
 		Timeout: timeout, MaxRetries: *retries, Parallel: *parallel, Resume: *resume,
-		Candidates: *candidates, MaxCorrections: *corrections,
+		Candidates: *candidates, MaxCorrections: *corrections, DeferredRateLimitRetries: *deferredRateLimitRetries,
 		Progress: func(message string) {
 			progressMu.Lock()
 			defer progressMu.Unlock()

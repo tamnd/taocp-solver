@@ -24,16 +24,17 @@ import (
 )
 
 type Runner struct {
-	Manifest       Manifest
-	Repository     *exercise.Repository
-	OutputRoot     string
-	Timeout        time.Duration
-	MaxRetries     int
-	Parallel       int
-	Candidates     int
-	MaxCorrections int
-	Resume         bool
-	Progress       func(string)
+	Manifest                 Manifest
+	Repository               *exercise.Repository
+	OutputRoot               string
+	Timeout                  time.Duration
+	MaxRetries               int
+	Parallel                 int
+	Candidates               int
+	MaxCorrections           int
+	DeferredRateLimitRetries int
+	Resume                   bool
+	Progress                 func(string)
 }
 
 type Case struct {
@@ -47,6 +48,7 @@ type Case struct {
 	GenerationCostUSD  float64           `json:"generation_cost_usd"`
 	PublishedListPrice pricing.ListPrice `json:"published_list_price"`
 	CostNote           string            `json:"cost_note"`
+	RateLimitDeferrals int               `json:"rate_limit_deferrals"`
 	Elapsed            time.Duration     `json:"elapsed"`
 }
 
@@ -146,6 +148,52 @@ func (r Runner) Run(ctx context.Context) (Report, error) {
 		}
 	}
 
+	if r.DeferredRateLimitRetries < 0 {
+		r.DeferredRateLimitRetries = 0
+	}
+	pending := jobs
+	for pass := 0; len(pending) > 0; pass++ {
+		var deferred []job
+		jobIndex := make(map[string]job, len(pending))
+		for _, item := range pending {
+			jobIndex[jobKey(item)] = item
+		}
+		for item := range r.runJobs(ctx, auditor, report.References, pending) {
+			if pass > item.RateLimitDeferrals {
+				item.RateLimitDeferrals = pass
+			}
+			upsertCase(&report.Cases, item)
+			sortCases(report.Cases)
+			report.Aggregates = aggregate(report.Cases)
+			report.CompletedAt = time.Now().UTC()
+			if err := saveJSON(filepath.Join(r.OutputRoot, "report.json"), report); err != nil {
+				return Report{}, err
+			}
+			r.log("%s %s %s: %s", item.Model.Name, exerciseKey(item.Exercise), item.Mode, item.Status)
+			if pass < r.DeferredRateLimitRetries && isRateLimited(item) {
+				deferred = append(deferred, jobIndex[caseKey(item)])
+			}
+		}
+		pending = deferred
+		if len(pending) > 0 {
+			r.log("retrying %d rate-limited cases after completing pass %d", len(pending), pass+1)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return report, err
+	}
+	report.CompletedAt = time.Now().UTC()
+	report.Aggregates = aggregate(report.Cases)
+	if err := saveJSON(filepath.Join(r.OutputRoot, "report.json"), report); err != nil {
+		return Report{}, err
+	}
+	if err := saveMarkdown(filepath.Join(r.OutputRoot, "REPORT.md"), report); err != nil {
+		return Report{}, err
+	}
+	return report, nil
+}
+
+func (r Runner) runJobs(ctx context.Context, auditor evaluation.Auditor, references map[string]evaluation.Reference, jobs []job) <-chan Case {
 	jobCh := make(chan job)
 	caseCh := make(chan Case)
 	var workers sync.WaitGroup
@@ -154,7 +202,7 @@ func (r Runner) Run(ctx context.Context) (Report, error) {
 		go func() {
 			defer workers.Done()
 			for item := range jobCh {
-				caseCh <- r.runCase(ctx, auditor, report.References[exerciseKey(item.exercise)], item)
+				caseCh <- r.runCase(ctx, auditor, references[exerciseKey(item.exercise)], item)
 			}
 		}()
 	}
@@ -172,28 +220,34 @@ func (r Runner) Run(ctx context.Context) (Report, error) {
 		workers.Wait()
 		close(caseCh)
 	}()
-	for item := range caseCh {
-		report.Cases = append(report.Cases, item)
-		sortCases(report.Cases)
-		report.Aggregates = aggregate(report.Cases)
-		report.CompletedAt = time.Now().UTC()
-		if err := saveJSON(filepath.Join(r.OutputRoot, "report.json"), report); err != nil {
-			return Report{}, err
+	return caseCh
+}
+
+func isRateLimited(item Case) bool {
+	if item.Status != "provider_error" {
+		return false
+	}
+	message := strings.ToLower(item.Error)
+	return strings.Contains(message, "429") || strings.Contains(message, "rate limit") || strings.Contains(message, "freeusagelimiterror")
+}
+
+func upsertCase(cases *[]Case, item Case) {
+	key := caseKey(item)
+	for index := range *cases {
+		if caseKey((*cases)[index]) == key {
+			(*cases)[index] = item
+			return
 		}
-		r.log("%s %s %s: %s", item.Model.Name, exerciseKey(item.Exercise), item.Mode, item.Status)
 	}
-	if err := ctx.Err(); err != nil {
-		return report, err
-	}
-	report.CompletedAt = time.Now().UTC()
-	report.Aggregates = aggregate(report.Cases)
-	if err := saveJSON(filepath.Join(r.OutputRoot, "report.json"), report); err != nil {
-		return Report{}, err
-	}
-	if err := saveMarkdown(filepath.Join(r.OutputRoot, "REPORT.md"), report); err != nil {
-		return Report{}, err
-	}
-	return report, nil
+	*cases = append(*cases, item)
+}
+
+func caseKey(item Case) string {
+	return item.Model.Name + "\x00" + string(item.Mode) + "\x00" + exerciseKey(item.Exercise)
+}
+
+func jobKey(item job) string {
+	return item.profile.Name + "\x00" + string(item.mode) + "\x00" + exerciseKey(item.exercise)
 }
 
 func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, reference evaluation.Reference, item job) Case {
@@ -249,19 +303,23 @@ func (r Runner) client(profile ModelProfile) api.Completer {
 		key = os.Getenv(profile.APIKeyEnv)
 	}
 	httpClient := &http.Client{Timeout: r.Timeout}
+	maxRetries := r.MaxRetries
+	if profile.MaxRetries != nil {
+		maxRetries = *profile.MaxRetries
+	}
 	base := strings.TrimRight(profile.BaseURL, "/")
 	if profile.Protocol == "responses" {
 		url := base + "/responses"
 		if !strings.HasSuffix(base, "/v1") {
 			url = base + "/v1/responses"
 		}
-		return &api.Client{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: r.MaxRetries, UserAgent: "taocp-matrix"}
+		return &api.Client{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, UserAgent: "taocp-matrix"}
 	}
 	url := base + "/chat/completions"
 	if !strings.HasSuffix(base, "/v1") {
 		url = base + "/v1/chat/completions"
 	}
-	return &api.ChatClient{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: r.MaxRetries, UserAgent: "taocp-matrix"}
+	return &api.ChatClient{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, UserAgent: "taocp-matrix"}
 }
 
 func profileCost(profile ModelProfile, metrics result.MetricSet) (float64, pricing.ListPrice, string) {

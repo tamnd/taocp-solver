@@ -31,6 +31,8 @@ This is stronger than one sequential proof audit because it combines criteria de
 
 Provider failures and evaluator failures are never silently converted into incorrect solutions. The report records them separately. Truth and publishable rates use completed evaluations as their denominator, while planned and completed counts expose missing coverage.
 
+Limited-time Zen routes use zero immediate retries in the built-in manifest. A daily quota exhaustion can advertise a retry delay of many hours; recording the provider failure immediately keeps the remaining matrix runnable. After the first pass through all models, the runner retries rate-limited cases once by default. `--deferred-rate-limit-retries` controls that final pass. If the route is still unavailable, `--resume` can revisit it later without rerunning completed cases. Other profiles inherit the command-level retry policy.
+
 ## Token and cost accounting
 
 Every request preserves input, uncached input, cached input, cache write, output, reasoning output, and total tokens. Reasoning tokens are a subset of output tokens and are not added twice.

@@ -17,14 +17,15 @@ type Exercise struct {
 }
 
 type ModelProfile struct {
-	Name      string        `json:"name"`
-	Provider  string        `json:"provider"`
-	Model     string        `json:"model"`
-	BaseURL   string        `json:"base_url"`
-	APIKeyEnv string        `json:"api_key_env,omitempty"`
-	Protocol  string        `json:"protocol"`
-	CostBasis string        `json:"cost_basis"`
-	Modes     []solver.Mode `json:"modes"`
+	Name       string        `json:"name"`
+	Provider   string        `json:"provider"`
+	Model      string        `json:"model"`
+	BaseURL    string        `json:"base_url"`
+	APIKeyEnv  string        `json:"api_key_env,omitempty"`
+	Protocol   string        `json:"protocol"`
+	CostBasis  string        `json:"cost_basis"`
+	MaxRetries *int          `json:"max_retries,omitempty"`
+	Modes      []solver.Mode `json:"modes"`
 }
 
 type Manifest struct {
@@ -90,6 +91,9 @@ func DefaultManifest() Manifest {
 		profile("nemotron-3-ultra-free", "zen", "nemotron-3-ultra-free", zenURL, "OPENCODE_API_KEY", "free", fast),
 		profile("north-mini-code-free", "zen", "north-mini-code-free", zenURL, "OPENCODE_API_KEY", "free", fast),
 	}
+	for index := range profiles {
+		profiles[index].MaxRetries = intPointer(0)
+	}
 	for _, model := range []string{
 		"gpt-oss:20b", "qwen2.5-coder:32b", "deepseek-v2:16b", "deepseek-coder-v2:16b",
 		"deepseek-r1:32b", "qwen3:32b", "qwen3:30b-a3b", "qwen3.6:27b", "devstral:24b",
@@ -120,6 +124,8 @@ func DefaultManifest() Manifest {
 func profile(name, provider, model, baseURL, keyEnv, cost string, modes []solver.Mode) ModelProfile {
 	return ModelProfile{Name: name, Provider: provider, Model: model, BaseURL: baseURL, APIKeyEnv: keyEnv, Protocol: "chat", CostBasis: cost, Modes: modes}
 }
+
+func intPointer(value int) *int { return &value }
 
 func env(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
