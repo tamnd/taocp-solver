@@ -44,6 +44,7 @@ type Case struct {
 	Mode               solver.Mode       `json:"mode"`
 	Status             string            `json:"status"`
 	Error              string            `json:"error,omitempty"`
+	ErrorHistory       []string          `json:"error_history,omitempty"`
 	Generation         result.Result     `json:"generation"`
 	IndependentAudit   evaluation.Report `json:"independent_audit"`
 	GenerationCostUSD  float64           `json:"generation_cost_usd"`
@@ -163,6 +164,10 @@ func (r Runner) Run(ctx context.Context) (Report, error) {
 			if pass > item.RateLimitDeferrals {
 				item.RateLimitDeferrals = pass
 			}
+			preserveErrorHistory(report.Cases, &item)
+			if err := saveJSON(r.casePath(job{profile: item.Model, exercise: item.Exercise, mode: item.Mode}), item); err != nil {
+				return Report{}, err
+			}
 			upsertCase(&report.Cases, item)
 			sortCases(report.Cases)
 			report.Aggregates = aggregate(report.Cases)
@@ -232,6 +237,30 @@ func isRateLimited(item Case) bool {
 	return strings.Contains(message, "429") || strings.Contains(message, "rate limit") || strings.Contains(message, "freeusagelimiterror")
 }
 
+func preserveErrorHistory(cases []Case, item *Case) {
+	for _, previous := range cases {
+		if caseKey(previous) != caseKey(*item) {
+			continue
+		}
+		for _, message := range previous.ErrorHistory {
+			appendUniqueError(&item.ErrorHistory, message)
+		}
+		if previous.Error != "" && previous.Error != item.Error {
+			appendUniqueError(&item.ErrorHistory, previous.Error)
+		}
+		return
+	}
+}
+
+func appendUniqueError(history *[]string, message string) {
+	for _, existing := range *history {
+		if existing == message {
+			return
+		}
+	}
+	*history = append(*history, message)
+}
+
 func upsertCase(cases *[]Case, item Case) {
 	key := caseKey(item)
 	for index := range *cases {
@@ -255,11 +284,18 @@ func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, referen
 	started := time.Now()
 	path := r.casePath(item)
 	var value Case
+	var previousErrors []string
 	if r.Resume {
 		var cached Case
 		if loadJSON(path, &cached) == nil {
 			if cached.Status == "completed" {
 				return cached
+			}
+			for _, message := range cached.ErrorHistory {
+				appendUniqueError(&previousErrors, message)
+			}
+			if cached.Error != "" {
+				appendUniqueError(&previousErrors, cached.Error)
 			}
 			if cached.Generation.Solution != "" {
 				value = cached
@@ -271,7 +307,7 @@ func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, referen
 		_, card, costNote := profileCost(item.profile, result.MetricSet{})
 		value = Case{
 			Model: item.profile, Exercise: item.exercise, Mode: item.mode, Status: "provider_error",
-			PublishedListPrice: card, CostNote: costNote,
+			PublishedListPrice: card, CostNote: costNote, ErrorHistory: previousErrors,
 		}
 		client := r.client(item.profile)
 		engine := &solver.Engine{

@@ -113,4 +113,10 @@ func TestRateLimitedCasesAreDeferredAndReplaced(t *testing.T) {
 	if !isRateLimited(evaluation) {
 		t.Fatal("evaluator rate limit was not deferred")
 	}
+	retried := first
+	retried.Error = "connect: connection refused"
+	preserveErrorHistory([]Case{first}, &retried)
+	if len(retried.ErrorHistory) != 1 || retried.ErrorHistory[0] != first.Error {
+		t.Fatalf("error history = %q", retried.ErrorHistory)
+	}
 }

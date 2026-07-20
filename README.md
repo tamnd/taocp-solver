@@ -135,7 +135,7 @@ taocp matrix --write-manifest matrix.json
 taocp matrix --manifest matrix.json --parallel 2 --resume
 ```
 
-The built-in manifest covers five difficulty levels, five limited-time Zen routes, twelve local GamingPC models, and six GPT models. It runs every profile in fast mode and adds a matched slow-mode run for GPT-5.6 Sol. One fixed GPT-5.6 Sol evaluator builds a single reference per exercise, then applies a reference-grounded criteria judge and a reference-blind falsification judge to every solution. Provider failures and evaluation failures are separate from false solutions. The resumable report preserves each solution, both audits, every token component, published price card, generation cost, evaluation cost, latency, and aggregate capability rates. See [the matrix protocol](docs/MATRIX.md).
+The built-in manifest covers five difficulty levels, five limited-time Zen routes, twelve local GamingPC models, and six GPT models. It runs every profile in fast mode and adds a matched slow-mode run for GPT-5.6 Sol. One fixed GPT-5.6 Sol evaluator builds a single reference per exercise, then applies a reference-grounded criteria judge and a reference-blind falsification judge to every solution. Provider failures and evaluation failures are separate from false solutions. The resumable report preserves each solution, both audits, every token component, published price card, generation cost, evaluation cost, latency, and aggregate capability rates. See [the matrix protocol](docs/MATRIX.md) and the [2026-07-20 Zen evaluation](docs/ZEN-EVALUATION.md).
 
 Flags can appear before or after positional arguments. Every model-calling command accepts `--base-url`, `--api-key`, `--model`, `--source`, `--output`, `--timeout`, and `--retries`.
 
