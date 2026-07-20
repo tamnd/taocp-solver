@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func TestCompleteResponsesAPI(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body["model"] != "gpt-5.6" || body["input"] != "problem" || body["store"] != false {
+		if body["model"] != "gpt-5.6" || body["input"] != "problem" || body["store"] != false || body["max_output_tokens"] != float64(123) {
 			t.Errorf("unexpected body: %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -31,7 +32,7 @@ func TestCompleteResponsesAPI(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{URL: server.URL + "/v1/responses", APIKey: "secret", HTTPClient: server.Client()}
+	client := &Client{URL: server.URL + "/v1/responses", APIKey: "secret", HTTPClient: server.Client(), MaxOutputTokens: 123}
 	response, err := client.Complete(context.Background(), Request{Model: "gpt-5.6", Input: "problem", Effort: "high"})
 	if err != nil {
 		t.Fatal(err)
@@ -81,5 +82,25 @@ func TestCompleteDoesNotRetryBadRequest(t *testing.T) {
 	_, err := client.Complete(context.Background(), Request{Model: "test", Input: "x"})
 	if err == nil || calls.Load() != 1 {
 		t.Fatalf("err = %v, calls = %d", err, calls.Load())
+	}
+}
+
+func TestCompleteSkipsRetryBeyondDelayLimit(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	var slept atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "3600")
+		http.Error(w, `{"error":{"message":"daily quota"}}`, http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	client := &Client{
+		URL: server.URL, HTTPClient: server.Client(), MaxRetries: 4, MaxRetryDelay: time.Minute,
+		Sleep: func(context.Context, time.Duration) error { slept.Store(true); return nil },
+	}
+	_, err := client.Complete(context.Background(), Request{Model: "test", Input: "x"})
+	if err == nil || !strings.Contains(err.Error(), "retry after 1h0m0s") || calls.Load() != 1 || slept.Load() {
+		t.Fatalf("err = %v, calls = %d, slept = %t", err, calls.Load(), slept.Load())
 	}
 }

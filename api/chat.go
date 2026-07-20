@@ -19,20 +19,23 @@ import (
 // preferred client for a local subscription bridge because the bridge converts
 // chat messages into the upstream Responses format and preserves streaming.
 type ChatClient struct {
-	URL        string
-	APIKey     string
-	HTTPClient *http.Client
-	MaxRetries int
-	UserAgent  string
-	Sleep      func(context.Context, time.Duration) error
+	URL             string
+	APIKey          string
+	HTTPClient      *http.Client
+	MaxRetries      int
+	MaxRetryDelay   time.Duration
+	MaxOutputTokens int
+	UserAgent       string
+	Sleep           func(context.Context, time.Duration) error
 }
 
 type chatRequest struct {
-	Model          string        `json:"model"`
-	Messages       []chatMessage `json:"messages"`
-	Stream         bool          `json:"stream"`
-	StreamOptions  streamOptions `json:"stream_options"`
-	PromptCacheKey string        `json:"prompt_cache_key,omitempty"`
+	Model               string        `json:"model"`
+	Messages            []chatMessage `json:"messages"`
+	Stream              bool          `json:"stream"`
+	StreamOptions       streamOptions `json:"stream_options"`
+	PromptCacheKey      string        `json:"prompt_cache_key,omitempty"`
+	MaxCompletionTokens int           `json:"max_completion_tokens,omitempty"`
 }
 
 type chatMessage struct {
@@ -90,9 +93,10 @@ func (c *ChatClient) Complete(ctx context.Context, request Request) (Response, e
 			{Role: "system", Content: request.Instructions},
 			{Role: "user", Content: request.Input},
 		},
-		Stream:         true,
-		StreamOptions:  streamOptions{IncludeUsage: true},
-		PromptCacheKey: cacheKey(request.Instructions),
+		Stream:              true,
+		StreamOptions:       streamOptions{IncludeUsage: true},
+		PromptCacheKey:      cacheKey(request.Instructions),
+		MaxCompletionTokens: c.MaxOutputTokens,
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -106,6 +110,9 @@ func (c *ChatClient) Complete(ctx context.Context, request Request) (Response, e
 		}
 		last = err
 		if !retry || attempt == max(0, c.MaxRetries) {
+			break
+		}
+		if c.MaxRetryDelay > 0 && retryAfter > c.MaxRetryDelay {
 			break
 		}
 		if retryAfter <= 0 {
@@ -146,8 +153,9 @@ func (c *ChatClient) do(ctx context.Context, payload []byte) (Response, time.Dur
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return Response{}, parseRetryAfter(resp.Header.Get("Retry-After")), retry,
-			fmt.Errorf("chat completions API returned %s: %s", resp.Status, responseError(raw))
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		return Response{}, retryAfter, retry,
+			fmt.Errorf("chat completions API returned %s: %s%s", resp.Status, responseError(raw), retryAfterSuffix(retryAfter))
 	}
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") {

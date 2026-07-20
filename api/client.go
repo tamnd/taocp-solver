@@ -67,21 +67,24 @@ func (u Usage) UncachedInputTokens() int {
 }
 
 type Client struct {
-	URL        string
-	APIKey     string
-	HTTPClient *http.Client
-	MaxRetries int
-	UserAgent  string
-	Sleep      func(context.Context, time.Duration) error
+	URL             string
+	APIKey          string
+	HTTPClient      *http.Client
+	MaxRetries      int
+	MaxRetryDelay   time.Duration
+	MaxOutputTokens int
+	UserAgent       string
+	Sleep           func(context.Context, time.Duration) error
 }
 
 type wireRequest struct {
-	Model        string            `json:"model"`
-	Instructions string            `json:"instructions,omitempty"`
-	Input        string            `json:"input"`
-	Reasoning    *reasoning        `json:"reasoning,omitempty"`
-	Metadata     map[string]string `json:"metadata,omitempty"`
-	Store        bool              `json:"store"`
+	Model           string            `json:"model"`
+	Instructions    string            `json:"instructions,omitempty"`
+	Input           string            `json:"input"`
+	Reasoning       *reasoning        `json:"reasoning,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
+	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
+	Store           bool              `json:"store"`
 }
 
 type reasoning struct {
@@ -131,11 +134,12 @@ func (c *Client) Complete(ctx context.Context, request Request) (Response, error
 		return Response{}, errors.New("input is empty")
 	}
 	body := wireRequest{
-		Model:        request.Model,
-		Instructions: request.Instructions,
-		Input:        request.Input,
-		Metadata:     request.Metadata,
-		Store:        false,
+		Model:           request.Model,
+		Instructions:    request.Instructions,
+		Input:           request.Input,
+		Metadata:        request.Metadata,
+		MaxOutputTokens: c.MaxOutputTokens,
+		Store:           false,
 	}
 	if request.Effort != "" {
 		body.Reasoning = &reasoning{Effort: request.Effort}
@@ -153,6 +157,9 @@ func (c *Client) Complete(ctx context.Context, request Request) (Response, error
 		}
 		last = err
 		if !retry || attempt == max(0, c.MaxRetries) {
+			break
+		}
+		if c.MaxRetryDelay > 0 && retryAfter > c.MaxRetryDelay {
 			break
 		}
 		if retryAfter <= 0 {
@@ -202,8 +209,9 @@ func (c *Client) do(ctx context.Context, payload []byte) (Response, time.Duratio
 			message = http.StatusText(resp.StatusCode)
 		}
 		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return Response{}, parseRetryAfter(resp.Header.Get("Retry-After")), retry,
-			fmt.Errorf("responses API returned %s: %s", resp.Status, message)
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		return Response{}, retryAfter, retry,
+			fmt.Errorf("responses API returned %s: %s%s", resp.Status, message, retryAfterSuffix(retryAfter))
 	}
 
 	var decoded wireResponse
@@ -296,6 +304,13 @@ func parseRetryAfter(value string) time.Duration {
 		return max(0, time.Until(when))
 	}
 	return 0
+}
+
+func retryAfterSuffix(delay time.Duration) string {
+	if delay <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (retry after %s)", delay)
 }
 
 func backoff(attempt int) time.Duration {

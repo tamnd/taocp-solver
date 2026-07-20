@@ -43,7 +43,7 @@ func TestHelp(t *testing.T) {
 	if err := run(context.Background(), []string{"help"}, &output, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "taocp solve") || !strings.Contains(output.String(), "taocp review") || !strings.Contains(output.String(), "taocp benchmark") {
+	if !strings.Contains(output.String(), "taocp solve") || !strings.Contains(output.String(), "taocp review") || !strings.Contains(output.String(), "taocp benchmark") || !strings.Contains(output.String(), "taocp matrix") {
 		t.Fatalf("help = %q", output.String())
 	}
 }

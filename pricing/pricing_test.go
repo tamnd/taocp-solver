@@ -38,3 +38,28 @@ func TestLookupAllGPT56Tiers(t *testing.T) {
 		t.Fatalf("unknown model cost = %+v", cost)
 	}
 }
+
+func TestPublishedFreePricesAreNotMissingPrices(t *testing.T) {
+	t.Parallel()
+	for _, model := range []string{"deepseek-v4-flash-free", "mimo-v2.5-free", "nemotron-3-ultra-free", "north-mini-code-free"} {
+		card, ok := PublishedListPrice(model)
+		if !ok || !card.Available || card.Provider != "OpenCode Zen" || card.Currency != "USD" || card.InputPerMillion != 0 || card.OutputPerMillion != 0 {
+			t.Errorf("PublishedListPrice(%q) = %+v, %v", model, card, ok)
+		}
+		cost := Calculate(model, api.Usage{InputTokens: 100, OutputTokens: 50})
+		if !cost.Available || cost.TotalUSD != 0 || cost.Source != ZenSourceURL {
+			t.Errorf("Calculate(%q) = %+v", model, cost)
+		}
+	}
+}
+
+func TestHy3PreservesUpstreamCurrencyAndPromotion(t *testing.T) {
+	t.Parallel()
+	card, ok := PublishedListPrice("hy3-free")
+	if !ok || !card.Available || card.Currency != "CNY" || card.PromotionEnds != "2026-07-22" || card.PostPromotionInput != 1 || card.PostPromotionCachedInput != 0.25 || card.PostPromotionOutput != 4 {
+		t.Fatalf("Hy3 price = %+v, %v", card, ok)
+	}
+	if cost := Calculate("hy3-free", api.Usage{InputTokens: 100}); cost.Available {
+		t.Fatalf("Hy3 USD cost should be unavailable, got %+v", cost)
+	}
+}

@@ -128,6 +128,15 @@ taocp benchmark 1.1 1 --reuse
 
 Benchmark cost is split into fast generation, the complete slow workflow, and blind quality evaluation. The evaluation calls are not added to either mode's production cost. Each run saves `fast`, `slow`, and `report.json` artifacts under the configured output directory.
 
+Run the reproducible five-exercise model matrix:
+
+```sh
+taocp matrix --write-manifest matrix.json
+taocp matrix --manifest matrix.json --parallel 2 --resume
+```
+
+The built-in manifest covers five difficulty levels, five limited-time Zen routes, twelve local GamingPC models, and six GPT models. It runs every profile in fast mode and adds a matched slow-mode run for GPT-5.6 Sol. One fixed GPT-5.6 Sol evaluator builds a single reference per exercise, then applies a reference-grounded criteria judge and a reference-blind falsification judge to every solution. Provider failures and evaluation failures are separate from false solutions. The resumable report preserves each solution, both audits, every token component, published price card, generation cost, evaluation cost, latency, and aggregate capability rates. See [the matrix protocol](docs/MATRIX.md) and the [2026-07-20 Zen evaluation](docs/ZEN-EVALUATION.md).
+
 Flags can appear before or after positional arguments. Every model-calling command accepts `--base-url`, `--api-key`, `--model`, `--source`, `--output`, `--timeout`, and `--retries`.
 
 ## Library
@@ -192,7 +201,11 @@ Every model call records input, cached-input, cache-write, output, reasoning, an
 - `current_run` counts only requests made by the current command.
 - `cumulative` counts the saved solution attempt history, including an earlier solve when a cached solution is reviewed again.
 
-Each scope includes a complete provider-reported token breakdown, priced and unpriced request counts, and a standard API list-cost estimate in USD. GPT-5.6 Sol, Terra, and Luna rates come from the [official model comparison](https://developers.openai.com/api/docs/models/compare). The calculator includes the official 1.25x cache-write rate when the endpoint reports cache-write tokens, plus the input and output multipliers for requests above 272K input tokens. It does not claim actual subscription cost, or Batch, Priority, tool-call, or negotiated cost. An unknown model is reported as unpriced instead of being assigned an invented rate.
+Each scope includes a complete provider-reported token breakdown, priced and unpriced request counts, and a standard API list-cost estimate in USD. GPT-5.6 Sol, Terra, Luna, GPT-5.5, GPT-5.4, and GPT-5.4 mini rates come from the [official model documentation](https://developers.openai.com/api/docs/models/compare). The calculator includes the official 1.25x cache-write rate when the endpoint reports cache-write tokens, plus applicable input and output multipliers for requests above 272K input tokens. GPT-5.4 mini does not use that long-context multiplier.
+
+The matrix also records each free route's published list price. OpenCode Zen explicitly lists DeepSeek V4 Flash Free, MiMo-V2.5 Free, North Mini Code Free, and Nemotron 3 Ultra Free at zero for input, cached input, and output. Zen does not publish a cache-write price for them. Hy3 is recorded from Tencent Cloud's upstream price card: free through July 22, 2026, then CNY 1 input, CNY 0.25 cache hit, and CNY 4 output per million tokens. Zen does not publish `hy3-free` in its own pricing table, so the report does not present Tencent's price as a Zen price. Local models remain unpriced because a zero API charge does not measure electricity or hardware depreciation.
+
+List cost does not claim actual subscription cost, or Batch, Priority, tool-call, negotiated, hardware, or energy cost. An unknown price is reported as unavailable instead of being assigned an invented zero.
 
 ## Development
 
