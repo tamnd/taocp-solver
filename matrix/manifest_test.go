@@ -36,6 +36,9 @@ func TestDefaultManifestIsStratifiedAndPriced(t *testing.T) {
 	if len(sol.Modes) != 2 || sol.Modes[0] != solver.ModeFast || sol.Modes[1] != solver.ModeSlow {
 		t.Fatalf("gpt-5.6-sol modes = %v", sol.Modes)
 	}
+	if manifest.Evaluator.MaxRetries == nil || *manifest.Evaluator.MaxRetries != 1 {
+		t.Fatalf("evaluator retries = %v", manifest.Evaluator.MaxRetries)
+	}
 }
 
 func TestProfileCostDistinguishesFreeLocalAndOfficial(t *testing.T) {
@@ -104,5 +107,10 @@ func TestRateLimitedCasesAreDeferredAndReplaced(t *testing.T) {
 	ordinary.Error = "connection reset"
 	if isRateLimited(ordinary) {
 		t.Fatal("ordinary provider error was classified as rate limited")
+	}
+	evaluation := first
+	evaluation.Status = "evaluation_error"
+	if !isRateLimited(evaluation) {
+		t.Fatal("evaluator rate limit was not deferred")
 	}
 }

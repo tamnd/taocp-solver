@@ -117,14 +117,20 @@ func DefaultManifest() Manifest {
 			{Section: "1.2.1", Number: 11, Level: 30, Focus: "symbolic derivation"},
 			{Section: "7.2.1.2", Number: 93, Level: 35, Focus: "algorithm and proof"},
 		},
-		Models:    profiles,
-		Evaluator: profile("evaluator-gpt-5.6-sol", "bridge", "gpt-5.6-sol", bridgeURL, "", "official-list", nil),
+		Models: profiles,
+		Evaluator: func() ModelProfile {
+			value := profile("evaluator-gpt-5.6-sol", "bridge", "gpt-5.6-sol", bridgeURL, "", "official-list", nil)
+			value.MaxRetries = intPointer(1)
+			return value
+		}(),
 	}
 }
 
 func profile(name, provider, model, baseURL, keyEnv, cost string, modes []solver.Mode) ModelProfile {
 	return ModelProfile{Name: name, Provider: provider, Model: model, BaseURL: baseURL, APIKeyEnv: keyEnv, Protocol: "chat", CostBasis: cost, Modes: modes}
 }
+
+func intPointer(value int) *int { return &value }
 
 func env(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {

@@ -225,7 +225,7 @@ func (r Runner) runJobs(ctx context.Context, auditor evaluation.Auditor, referen
 }
 
 func isRateLimited(item Case) bool {
-	if item.Status != "provider_error" {
+	if item.Status != "provider_error" && item.Status != "evaluation_error" {
 		return false
 	}
 	message := strings.ToLower(item.Error)
