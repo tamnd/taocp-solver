@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/tamnd/taocp-solver/benchmark"
 	"github.com/tamnd/taocp-solver/config"
 	"github.com/tamnd/taocp-solver/exercise"
+	"github.com/tamnd/taocp-solver/matrix"
 	"github.com/tamnd/taocp-solver/prompt"
 	"github.com/tamnd/taocp-solver/result"
 	"github.com/tamnd/taocp-solver/solver"
@@ -61,9 +63,131 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runReview(ctx, args[1:], stdout, stderr)
 	case "benchmark":
 		return runBenchmark(ctx, args[1:], stdout, stderr)
+	case "matrix":
+		return runMatrix(ctx, args[1:], stdout, stderr)
 	default:
-		return fmt.Errorf("unknown command %q; run taocp-solver help", args[0])
+		return fmt.Errorf("unknown command %q; run taocp help", args[0])
 	}
+}
+
+func runMatrix(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	defaults := config.FromEnv()
+	fs := pflag.NewFlagSet("matrix", pflag.ContinueOnError)
+	fs.SetOutput(stderr)
+	manifestPath := fs.String("manifest", "", "JSON manifest; defaults to the built-in model and exercise matrix")
+	output := fs.String("output", filepath.Join(defaults.OutputRoot, "matrix"), "matrix report directory")
+	source := fs.String("source", defaults.TAOCPRoot, "TAOCP source repository")
+	timeoutText := fs.String("timeout", defaults.Timeout.String(), "timeout per model request")
+	retries := fs.Int("retries", defaults.MaxRetries, "retries for transient API failures")
+	parallel := fs.Int("parallel", defaults.Parallel, "parallel model and exercise cases")
+	resume := fs.Bool("resume", false, "reuse completed cases and fixed references")
+	models := fs.String("models", "", "comma-separated profile names to run")
+	modes := fs.String("modes", "", "override profile modes with fast, slow, or fast,slow")
+	candidates := fs.Int("candidates", defaults.Candidates, "slow-mode candidate population")
+	corrections := fs.Int("max-corrections", defaults.MaxCorrections, "slow-mode correction passes")
+	writeManifest := fs.String("write-manifest", "", "write the effective manifest and exit")
+	evaluatorURL := fs.String("evaluator-base-url", "", "override the fixed evaluator base URL")
+	evaluatorModel := fs.String("evaluator-model", "", "override the fixed evaluator model")
+	evaluatorKeyEnv := fs.String("evaluator-api-key-env", "", "environment variable holding the evaluator API key")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) != 0 {
+		return errors.New("matrix takes no positional arguments")
+	}
+	manifest := matrix.DefaultManifest()
+	var err error
+	if *manifestPath != "" {
+		manifest, err = matrix.LoadManifest(*manifestPath)
+		if err != nil {
+			return err
+		}
+	}
+	if *evaluatorURL != "" {
+		manifest.Evaluator.BaseURL = *evaluatorURL
+	}
+	if *evaluatorModel != "" {
+		manifest.Evaluator.Model = *evaluatorModel
+	}
+	if *evaluatorKeyEnv != "" {
+		manifest.Evaluator.APIKeyEnv = *evaluatorKeyEnv
+	}
+	if *models != "" {
+		wanted := map[string]bool{}
+		for _, name := range strings.Split(*models, ",") {
+			wanted[strings.TrimSpace(name)] = true
+		}
+		var selected []matrix.ModelProfile
+		for _, profile := range manifest.Models {
+			if wanted[profile.Name] {
+				selected = append(selected, profile)
+				delete(wanted, profile.Name)
+			}
+		}
+		if len(wanted) != 0 {
+			return fmt.Errorf("unknown matrix model profiles: %v", mapKeys(wanted))
+		}
+		manifest.Models = selected
+	}
+	if *modes != "" {
+		var selected []solver.Mode
+		for _, value := range strings.Split(*modes, ",") {
+			mode, err := parseMode(value)
+			if err != nil {
+				return err
+			}
+			selected = append(selected, mode)
+		}
+		for index := range manifest.Models {
+			manifest.Models[index].Modes = selected
+		}
+	}
+	if err := manifest.Validate(); err != nil {
+		return err
+	}
+	if *writeManifest != "" {
+		raw, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return err
+		}
+		raw = append(raw, '\n')
+		return os.WriteFile(*writeManifest, raw, 0o644)
+	}
+	timeout, err := config.ParseDuration(*timeoutText)
+	if err != nil {
+		return err
+	}
+	var progressMu sync.Mutex
+	runner := matrix.Runner{
+		Manifest: manifest, Repository: exercise.NewRepository(*source), OutputRoot: *output,
+		Timeout: timeout, MaxRetries: *retries, Parallel: *parallel, Resume: *resume,
+		Candidates: *candidates, MaxCorrections: *corrections,
+		Progress: func(message string) { progressMu.Lock(); defer progressMu.Unlock(); fmt.Fprintln(stderr, message) },
+	}
+	report, err := runner.Run(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "%s\n", filepath.Join(*output, "REPORT.md")); err != nil {
+		return err
+	}
+	for _, item := range report.Aggregates {
+		if _, err := fmt.Fprintf(stdout, "%s %s: %d/%d publishable, %d/%d true, %d tokens, $%.6f generation\n",
+			item.Model, item.Mode, item.Publishable, item.Completed, item.TrueSolutions, item.Completed,
+			item.GenerationMetrics.Tokens.TotalTokens, item.GenerationCostUSD); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mapKeys(values map[string]bool) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 type commonFlags struct {
@@ -460,6 +584,7 @@ Usage:
   taocp prompt SECTION NUMBER [flags]
   taocp review SECTION NUMBER --file solution.md [flags]
   taocp benchmark SECTION NUMBER [flags]
+  taocp matrix [flags]
   taocp version
 
 Run a command with -h to see its flags.

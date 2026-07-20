@@ -1,0 +1,75 @@
+package matrix
+
+import (
+	"testing"
+
+	"github.com/tamnd/taocp-solver/pricing"
+	"github.com/tamnd/taocp-solver/result"
+	"github.com/tamnd/taocp-solver/solver"
+)
+
+func TestDefaultManifestIsStratifiedAndPriced(t *testing.T) {
+	t.Parallel()
+	manifest := DefaultManifest()
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Exercises) != 5 || len(manifest.Models) != 23 {
+		t.Fatalf("manifest has %d exercises and %d models", len(manifest.Exercises), len(manifest.Models))
+	}
+	levels := []int{5, 15, 25, 30, 35}
+	for index, want := range levels {
+		if manifest.Exercises[index].Level != want {
+			t.Fatalf("exercise %d level = %d", index, manifest.Exercises[index].Level)
+		}
+	}
+	for _, profile := range manifest.Models[:5] {
+		card, ok := pricing.PublishedListPrice(profile.Model)
+		if !ok || !card.Available {
+			t.Errorf("free profile %q has no published price", profile.Model)
+		}
+	}
+	sol := manifest.Models[len(manifest.Models)-6]
+	if len(sol.Modes) != 2 || sol.Modes[0] != solver.ModeFast || sol.Modes[1] != solver.ModeSlow {
+		t.Fatalf("gpt-5.6-sol modes = %v", sol.Modes)
+	}
+}
+
+func TestProfileCostDistinguishesFreeLocalAndOfficial(t *testing.T) {
+	t.Parallel()
+	free := ModelProfile{Model: "deepseek-v4-flash-free", CostBasis: "free"}
+	cost, card, note := profileCost(free, result.MetricSet{})
+	if cost != 0 || !card.Available || card.Provider != "OpenCode Zen" || note == "" {
+		t.Fatalf("free cost = %f, %+v, %q", cost, card, note)
+	}
+	hy3 := ModelProfile{Model: "hy3-free", CostBasis: "free"}
+	_, card, _ = profileCost(hy3, result.MetricSet{})
+	if card.Currency != "CNY" || card.PostPromotionOutput != 4 {
+		t.Fatalf("Hy3 card = %+v", card)
+	}
+	local := ModelProfile{Model: "qwen3:8b", CostBasis: "local"}
+	_, card, note = profileCost(local, result.MetricSet{})
+	if card.Available || note == "" {
+		t.Fatalf("local price = %+v, %q", card, note)
+	}
+	official := ModelProfile{Model: "gpt-5.4-mini", CostBasis: "official-list"}
+	metrics := result.MetricSet{ListCost: pricing.Cost{Available: true, TotalUSD: 1.25}}
+	cost, card, _ = profileCost(official, metrics)
+	if cost != 1.25 || card.Provider != "OpenAI" {
+		t.Fatalf("official cost = %f, %+v", cost, card)
+	}
+}
+
+func TestManifestRejectsDuplicateNamesAndInvalidModes(t *testing.T) {
+	t.Parallel()
+	manifest := DefaultManifest()
+	manifest.Models[1].Name = manifest.Models[0].Name
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("expected duplicate model error")
+	}
+	manifest = DefaultManifest()
+	manifest.Models[0].Modes = []solver.Mode{"medium"}
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("expected invalid mode error")
+	}
+}
