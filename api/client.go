@@ -206,8 +206,9 @@ func (c *Client) do(ctx context.Context, payload []byte) (Response, time.Duratio
 			message = http.StatusText(resp.StatusCode)
 		}
 		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return Response{}, parseRetryAfter(resp.Header.Get("Retry-After")), retry,
-			fmt.Errorf("responses API returned %s: %s", resp.Status, message)
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		return Response{}, retryAfter, retry,
+			fmt.Errorf("responses API returned %s: %s%s", resp.Status, message, retryAfterSuffix(retryAfter))
 	}
 
 	var decoded wireResponse
@@ -300,6 +301,13 @@ func parseRetryAfter(value string) time.Duration {
 		return max(0, time.Until(when))
 	}
 	return 0
+}
+
+func retryAfterSuffix(delay time.Duration) string {
+	if delay <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (retry after %s)", delay)
 }
 
 func backoff(attempt int) time.Duration {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -99,7 +100,7 @@ func TestCompleteSkipsRetryBeyondDelayLimit(t *testing.T) {
 		Sleep: func(context.Context, time.Duration) error { slept.Store(true); return nil },
 	}
 	_, err := client.Complete(context.Background(), Request{Model: "test", Input: "x"})
-	if err == nil || calls.Load() != 1 || slept.Load() {
+	if err == nil || !strings.Contains(err.Error(), "retry after 1h0m0s") || calls.Load() != 1 || slept.Load() {
 		t.Fatalf("err = %v, calls = %d, slept = %t", err, calls.Load(), slept.Load())
 	}
 }

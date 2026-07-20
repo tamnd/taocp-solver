@@ -150,8 +150,9 @@ func (c *ChatClient) do(ctx context.Context, payload []byte) (Response, time.Dur
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return Response{}, parseRetryAfter(resp.Header.Get("Retry-After")), retry,
-			fmt.Errorf("chat completions API returned %s: %s", resp.Status, responseError(raw))
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		return Response{}, retryAfter, retry,
+			fmt.Errorf("chat completions API returned %s: %s%s", resp.Status, responseError(raw), retryAfterSuffix(retryAfter))
 	}
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") {
