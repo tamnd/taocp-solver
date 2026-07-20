@@ -24,7 +24,7 @@ func TestCompleteResponsesAPI(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body["model"] != "gpt-5.6" || body["input"] != "problem" || body["store"] != false {
+		if body["model"] != "gpt-5.6" || body["input"] != "problem" || body["store"] != false || body["max_output_tokens"] != float64(123) {
 			t.Errorf("unexpected body: %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -32,7 +32,7 @@ func TestCompleteResponsesAPI(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{URL: server.URL + "/v1/responses", APIKey: "secret", HTTPClient: server.Client()}
+	client := &Client{URL: server.URL + "/v1/responses", APIKey: "secret", HTTPClient: server.Client(), MaxOutputTokens: 123}
 	response, err := client.Complete(context.Background(), Request{Model: "gpt-5.6", Input: "problem", Effort: "high"})
 	if err != nil {
 		t.Fatal(err)

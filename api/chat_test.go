@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,13 @@ func TestChatClientStream(t *testing.T) {
 		if r.URL.Path != "/v1/chat/completions" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["max_completion_tokens"] != float64(123) {
+			t.Errorf("max_completion_tokens = %v", body["max_completion_tokens"])
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = fmt.Fprintln(w, `data: {"id":"chat_1","model":"gpt-5.6-sol","choices":[{"delta":{"content":"rigorous "}}]}`)
 		_, _ = fmt.Fprintln(w)
@@ -26,7 +34,7 @@ func TestChatClientStream(t *testing.T) {
 		_, _ = fmt.Fprintln(w, "data: [DONE]")
 	}))
 	defer server.Close()
-	client := &ChatClient{URL: server.URL + "/v1/chat/completions", HTTPClient: server.Client()}
+	client := &ChatClient{URL: server.URL + "/v1/chat/completions", HTTPClient: server.Client(), MaxOutputTokens: 123}
 	response, err := client.Complete(context.Background(), Request{Model: "gpt-5.6-sol", Instructions: "system", Input: "problem"})
 	if err != nil {
 		t.Fatal(err)

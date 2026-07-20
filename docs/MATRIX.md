@@ -70,6 +70,8 @@ taocp matrix \
 
 Use `--models` or `--modes` for a smaller diagnostic run. A complete run writes `report.json`, `REPORT.md`, fixed references, individual case files, and all generated solution artifacts.
 
+Matrix requests default to a 32,768 completion-token ceiling. This leaves room for a detailed proof while preventing a nonterminating compatible stream from consuming unbounded time and storage. Use `--max-output-tokens` to change the ceiling for a controlled experiment.
+
 ## Research basis
 
 The protocol draws on criteria-decomposed verification, earliest-error process evaluation, population generation and selection, fine-grained proof grading, and explicit assessment of proof quality beyond final-answer correctness. Relevant references are listed in the project README.

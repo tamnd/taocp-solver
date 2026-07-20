@@ -79,6 +79,7 @@ func runMatrix(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	source := fs.String("source", defaults.TAOCPRoot, "TAOCP source repository")
 	timeoutText := fs.String("timeout", defaults.Timeout.String(), "timeout per model request")
 	retries := fs.Int("retries", defaults.MaxRetries, "retries for transient API failures")
+	maxOutputTokens := fs.Int("max-output-tokens", 32768, "maximum completion tokens per matrix request")
 	deferredRateLimitRetries := fs.Int("deferred-rate-limit-retries", 1, "retry rate-limited cases after all other cases finish")
 	parallel := fs.Int("parallel", defaults.Parallel, "parallel model and exercise cases")
 	resume := fs.Bool("resume", false, "reuse completed cases and fixed references")
@@ -95,6 +96,9 @@ func runMatrix(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	}
 	if len(fs.Args()) != 0 {
 		return errors.New("matrix takes no positional arguments")
+	}
+	if *maxOutputTokens < 1 {
+		return errors.New("max-output-tokens must be positive")
 	}
 	manifest := matrix.DefaultManifest()
 	var err error
@@ -161,7 +165,7 @@ func runMatrix(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	var progressMu sync.Mutex
 	runner := matrix.Runner{
 		Manifest: manifest, Repository: exercise.NewRepository(*source), OutputRoot: *output,
-		Timeout: timeout, MaxRetries: *retries, Parallel: *parallel, Resume: *resume,
+		Timeout: timeout, MaxRetries: *retries, MaxOutputTokens: *maxOutputTokens, Parallel: *parallel, Resume: *resume,
 		Candidates: *candidates, MaxCorrections: *corrections, DeferredRateLimitRetries: *deferredRateLimitRetries,
 		Progress: func(message string) {
 			progressMu.Lock()

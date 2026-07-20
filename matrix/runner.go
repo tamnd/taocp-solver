@@ -29,6 +29,7 @@ type Runner struct {
 	OutputRoot               string
 	Timeout                  time.Duration
 	MaxRetries               int
+	MaxOutputTokens          int
 	Parallel                 int
 	Candidates               int
 	MaxCorrections           int
@@ -338,13 +339,13 @@ func (r Runner) client(profile ModelProfile) api.Completer {
 		if !strings.HasSuffix(base, "/v1") {
 			url = base + "/v1/responses"
 		}
-		return &api.Client{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, MaxRetryDelay: maxRetryDelay, UserAgent: "taocp-matrix"}
+		return &api.Client{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, MaxRetryDelay: maxRetryDelay, MaxOutputTokens: r.MaxOutputTokens, UserAgent: "taocp-matrix"}
 	}
 	url := base + "/chat/completions"
 	if !strings.HasSuffix(base, "/v1") {
 		url = base + "/v1/chat/completions"
 	}
-	return &api.ChatClient{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, MaxRetryDelay: maxRetryDelay, UserAgent: "taocp-matrix"}
+	return &api.ChatClient{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, MaxRetryDelay: maxRetryDelay, MaxOutputTokens: r.MaxOutputTokens, UserAgent: "taocp-matrix"}
 }
 
 func profileCost(profile ModelProfile, metrics result.MetricSet) (float64, pricing.ListPrice, string) {

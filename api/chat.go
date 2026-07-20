@@ -19,21 +19,23 @@ import (
 // preferred client for a local subscription bridge because the bridge converts
 // chat messages into the upstream Responses format and preserves streaming.
 type ChatClient struct {
-	URL           string
-	APIKey        string
-	HTTPClient    *http.Client
-	MaxRetries    int
-	MaxRetryDelay time.Duration
-	UserAgent     string
-	Sleep         func(context.Context, time.Duration) error
+	URL             string
+	APIKey          string
+	HTTPClient      *http.Client
+	MaxRetries      int
+	MaxRetryDelay   time.Duration
+	MaxOutputTokens int
+	UserAgent       string
+	Sleep           func(context.Context, time.Duration) error
 }
 
 type chatRequest struct {
-	Model          string        `json:"model"`
-	Messages       []chatMessage `json:"messages"`
-	Stream         bool          `json:"stream"`
-	StreamOptions  streamOptions `json:"stream_options"`
-	PromptCacheKey string        `json:"prompt_cache_key,omitempty"`
+	Model               string        `json:"model"`
+	Messages            []chatMessage `json:"messages"`
+	Stream              bool          `json:"stream"`
+	StreamOptions       streamOptions `json:"stream_options"`
+	PromptCacheKey      string        `json:"prompt_cache_key,omitempty"`
+	MaxCompletionTokens int           `json:"max_completion_tokens,omitempty"`
 }
 
 type chatMessage struct {
@@ -91,9 +93,10 @@ func (c *ChatClient) Complete(ctx context.Context, request Request) (Response, e
 			{Role: "system", Content: request.Instructions},
 			{Role: "user", Content: request.Input},
 		},
-		Stream:         true,
-		StreamOptions:  streamOptions{IncludeUsage: true},
-		PromptCacheKey: cacheKey(request.Instructions),
+		Stream:              true,
+		StreamOptions:       streamOptions{IncludeUsage: true},
+		PromptCacheKey:      cacheKey(request.Instructions),
+		MaxCompletionTokens: c.MaxOutputTokens,
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
