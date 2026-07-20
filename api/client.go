@@ -1,0 +1,243 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math/rand/v2"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type Completer interface {
+	Complete(ctx context.Context, request Request) (Response, error)
+}
+
+type Request struct {
+	Model        string
+	Instructions string
+	Input        string
+	Effort       string
+	Metadata     map[string]string
+}
+
+type Response struct {
+	ID           string `json:"id"`
+	Model        string `json:"model"`
+	Text         string `json:"text"`
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+}
+
+type Client struct {
+	URL        string
+	APIKey     string
+	HTTPClient *http.Client
+	MaxRetries int
+	UserAgent  string
+	Sleep      func(context.Context, time.Duration) error
+}
+
+type wireRequest struct {
+	Model        string            `json:"model"`
+	Instructions string            `json:"instructions,omitempty"`
+	Input        string            `json:"input"`
+	Reasoning    *reasoning        `json:"reasoning,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	Store        bool              `json:"store"`
+}
+
+type reasoning struct {
+	Effort string `json:"effort"`
+}
+
+type wireResponse struct {
+	ID         string `json:"id"`
+	Model      string `json:"model"`
+	OutputText string `json:"output_text"`
+	Output     []struct {
+		Type    string `json:"type"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"output"`
+	Usage struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
+
+func (c *Client) Complete(ctx context.Context, request Request) (Response, error) {
+	if strings.TrimSpace(c.URL) == "" {
+		return Response{}, errors.New("responses API URL is empty")
+	}
+	if strings.TrimSpace(request.Model) == "" {
+		return Response{}, errors.New("model is empty")
+	}
+	if strings.TrimSpace(request.Input) == "" {
+		return Response{}, errors.New("input is empty")
+	}
+	body := wireRequest{
+		Model:        request.Model,
+		Instructions: request.Instructions,
+		Input:        request.Input,
+		Metadata:     request.Metadata,
+		Store:        false,
+	}
+	if request.Effort != "" {
+		body.Reasoning = &reasoning{Effort: request.Effort}
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return Response{}, fmt.Errorf("encode request: %w", err)
+	}
+
+	var last error
+	for attempt := 0; attempt <= max(0, c.MaxRetries); attempt++ {
+		response, retryAfter, retry, err := c.do(ctx, payload)
+		if err == nil {
+			return response, nil
+		}
+		last = err
+		if !retry || attempt == max(0, c.MaxRetries) {
+			break
+		}
+		if retryAfter <= 0 {
+			retryAfter = backoff(attempt)
+		}
+		if err := c.sleep(ctx, retryAfter); err != nil {
+			return Response{}, err
+		}
+	}
+	return Response{}, last
+}
+
+func (c *Client) do(ctx context.Context, payload []byte) (Response, time.Duration, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(payload))
+	if err != nil {
+		return Response{}, 0, false, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	if c.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	if c.UserAgent != "" {
+		req.Header.Set("User-Agent", c.UserAgent)
+	}
+
+	client := c.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Minute}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return Response{}, 0, false, ctx.Err()
+		}
+		return Response{}, 0, true, fmt.Errorf("call responses API: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return Response{}, 0, true, fmt.Errorf("read responses API: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		message := responseError(raw)
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		return Response{}, parseRetryAfter(resp.Header.Get("Retry-After")), retry,
+			fmt.Errorf("responses API returned %s: %s", resp.Status, message)
+	}
+
+	var decoded wireResponse
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return Response{}, 0, false, fmt.Errorf("decode responses API: %w", err)
+	}
+	if decoded.Error != nil {
+		return Response{}, 0, false, fmt.Errorf("responses API error: %s", decoded.Error.Message)
+	}
+	text := strings.TrimSpace(decoded.OutputText)
+	if text == "" {
+		var parts []string
+		for _, item := range decoded.Output {
+			for _, content := range item.Content {
+				if content.Type == "output_text" || content.Type == "text" || content.Type == "" {
+					if value := strings.TrimSpace(content.Text); value != "" {
+						parts = append(parts, value)
+					}
+				}
+			}
+		}
+		text = strings.Join(parts, "\n\n")
+	}
+	if text == "" {
+		return Response{}, 0, true, errors.New("responses API returned no text")
+	}
+	return Response{
+		ID:           decoded.ID,
+		Model:        decoded.Model,
+		Text:         text,
+		InputTokens:  decoded.Usage.InputTokens,
+		OutputTokens: decoded.Usage.OutputTokens,
+	}, 0, false, nil
+}
+
+func (c *Client) sleep(ctx context.Context, duration time.Duration) error {
+	if c.Sleep != nil {
+		return c.Sleep(ctx, duration)
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func responseError(raw []byte) string {
+	var decoded wireResponse
+	if json.Unmarshal(raw, &decoded) == nil && decoded.Error != nil {
+		return strings.TrimSpace(decoded.Error.Message)
+	}
+	value := strings.TrimSpace(string(raw))
+	if len(value) > 1000 {
+		value = value[:1000]
+	}
+	return value
+}
+
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(value); err == nil {
+		return max(0, time.Until(when))
+	}
+	return 0
+}
+
+func backoff(attempt int) time.Duration {
+	base := min(30*time.Second, time.Second<<min(attempt, 5))
+	jitter := time.Duration(rand.IntN(500)) * time.Millisecond
+	return base + jitter
+}
