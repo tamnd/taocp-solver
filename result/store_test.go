@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tamnd/taocp-solver/api"
 	"github.com/tamnd/taocp-solver/exercise"
 )
 
@@ -32,5 +33,20 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(string(markdown), "# TAOCP 1.1 Exercise 1\n\nProof.") {
 		t.Fatalf("markdown = %q", markdown)
+	}
+}
+
+func TestBuildMetricsSeparatesCurrentRun(t *testing.T) {
+	t.Parallel()
+	attempts := []Attempt{
+		{Model: "gpt-5.6-sol", Usage: api.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15}},
+		{Model: "gpt-5.6-sol", CurrentRun: true, Usage: api.Usage{InputTokens: 20, CachedInputTokens: 8, CacheWriteTokens: 4, OutputTokens: 10, ReasoningTokens: 3, TotalTokens: 30}},
+	}
+	metrics := BuildMetrics(attempts)
+	if metrics.CurrentRun.Tokens.Requests != 1 || metrics.CurrentRun.Tokens.UncachedInputTokens != 8 || metrics.CurrentRun.Tokens.TotalTokens != 30 {
+		t.Fatalf("current = %+v", metrics.CurrentRun)
+	}
+	if metrics.Cumulative.Tokens.Requests != 2 || metrics.Cumulative.Tokens.InputTokens != 30 || metrics.Cumulative.Tokens.TotalTokens != 45 {
+		t.Fatalf("cumulative = %+v", metrics.Cumulative)
 	}
 }

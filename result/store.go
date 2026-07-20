@@ -8,16 +8,21 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/tamnd/taocp-solver/api"
 	"github.com/tamnd/taocp-solver/exercise"
+	"github.com/tamnd/taocp-solver/pricing"
 )
 
 type Attempt struct {
-	Phase        string `json:"phase"`
-	Iteration    int    `json:"iteration"`
-	ResponseID   string `json:"response_id,omitempty"`
-	Model        string `json:"model,omitempty"`
-	InputTokens  int    `json:"input_tokens,omitempty"`
-	OutputTokens int    `json:"output_tokens,omitempty"`
+	Phase        string       `json:"phase"`
+	Iteration    int          `json:"iteration"`
+	ResponseID   string       `json:"response_id,omitempty"`
+	Model        string       `json:"model,omitempty"`
+	CurrentRun   bool         `json:"current_run"`
+	InputTokens  int          `json:"input_tokens,omitempty"`
+	OutputTokens int          `json:"output_tokens,omitempty"`
+	Usage        api.Usage    `json:"usage"`
+	ListCost     pricing.Cost `json:"list_cost"`
 }
 
 type Review struct {
@@ -27,18 +32,101 @@ type Review struct {
 	Score   int    `json:"score,omitempty"`
 }
 
+type Candidate struct {
+	Number   int    `json:"number"`
+	Solution string `json:"solution_md"`
+}
+
+type Evaluation struct {
+	Verdict          string `json:"verdict"`
+	True             bool   `json:"true"`
+	Complete         bool   `json:"complete"`
+	SelfContained    bool   `json:"self_contained"`
+	HumanReadable    bool   `json:"human_readable"`
+	Verifiable       bool   `json:"verifiable"`
+	TruthJudgePassed bool   `json:"truth_judge_passed"`
+	AuditJudgePassed bool   `json:"audit_judge_passed"`
+}
+
+type TokenMetrics struct {
+	Requests            int `json:"requests"`
+	InputTokens         int `json:"input_tokens"`
+	UncachedInputTokens int `json:"uncached_input_tokens"`
+	CachedInputTokens   int `json:"cached_input_tokens"`
+	CacheWriteTokens    int `json:"cache_write_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	ReasoningTokens     int `json:"reasoning_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+}
+
+type MetricSet struct {
+	Tokens           TokenMetrics `json:"tokens"`
+	ListCost         pricing.Cost `json:"list_cost"`
+	PricedRequests   int          `json:"priced_requests"`
+	UnpricedRequests int          `json:"unpriced_requests"`
+}
+
+type Metrics struct {
+	CurrentRun MetricSet `json:"current_run"`
+	Cumulative MetricSet `json:"cumulative"`
+}
+
 type Result struct {
 	ID          string            `json:"id"`
 	Exercise    exercise.Exercise `json:"exercise"`
 	Solution    string            `json:"solution_md"`
+	Candidates  []Candidate       `json:"candidates,omitempty"`
+	Reference   string            `json:"reference_md,omitempty"`
+	Selection   string            `json:"selection_md,omitempty"`
+	Selected    int               `json:"selected_candidate,omitempty"`
 	Review      string            `json:"review_md"`
 	Reviews     []Review          `json:"reviews"`
 	Verdict     string            `json:"verdict"`
 	Verified    bool              `json:"verified"`
+	Evaluation  Evaluation        `json:"evaluation"`
 	Model       string            `json:"model"`
 	SolveTime   time.Duration     `json:"solve_time"`
 	CompletedAt time.Time         `json:"completed_at"`
 	Attempts    []Attempt         `json:"attempts"`
+	Metrics     Metrics           `json:"metrics"`
+}
+
+func BuildMetrics(attempts []Attempt) Metrics {
+	var metrics Metrics
+	for i := range attempts {
+		addAttempt(&metrics.Cumulative, attempts[i])
+		if attempts[i].CurrentRun {
+			addAttempt(&metrics.CurrentRun, attempts[i])
+		}
+	}
+	return metrics
+}
+
+func addAttempt(metrics *MetricSet, attempt Attempt) {
+	usage := attempt.Usage
+	if usage.InputTokens == 0 && usage.OutputTokens == 0 {
+		usage.InputTokens = attempt.InputTokens
+		usage.OutputTokens = attempt.OutputTokens
+	}
+	usage = usage.Normalized()
+	metrics.Tokens.Requests++
+	metrics.Tokens.InputTokens += usage.InputTokens
+	metrics.Tokens.UncachedInputTokens += usage.UncachedInputTokens()
+	metrics.Tokens.CachedInputTokens += usage.CachedInputTokens
+	metrics.Tokens.CacheWriteTokens += usage.CacheWriteTokens
+	metrics.Tokens.OutputTokens += usage.OutputTokens
+	metrics.Tokens.ReasoningTokens += usage.ReasoningTokens
+	metrics.Tokens.TotalTokens += usage.TotalTokens
+	cost := attempt.ListCost
+	if !cost.Available {
+		cost = pricing.Calculate(attempt.Model, usage)
+	}
+	if cost.Available {
+		metrics.PricedRequests++
+		metrics.ListCost = pricing.Add(metrics.ListCost, cost)
+	} else {
+		metrics.UnpricedRequests++
+	}
 }
 
 type Store struct {

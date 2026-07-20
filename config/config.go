@@ -14,6 +14,7 @@ import (
 const (
 	DefaultModel          = "gpt-5.6"
 	DefaultMaxCorrections = 2
+	DefaultCandidates     = 3
 )
 
 // Config contains every external dependency of a solver run. Environment
@@ -26,6 +27,7 @@ type Config struct {
 	OutputRoot     string
 	Timeout        time.Duration
 	MaxCorrections int
+	Candidates     int
 	MaxRetries     int
 	Parallel       int
 }
@@ -40,6 +42,7 @@ func FromEnv() Config {
 		OutputRoot:     env("TAOCP_SOLVER_OUTPUT", filepath.Join(home, "data", "taocp-solver")),
 		Timeout:        envDuration("TAOCP_SOLVER_TIMEOUT", 30*time.Minute),
 		MaxCorrections: envInt("TAOCP_SOLVER_MAX_CORRECTIONS", DefaultMaxCorrections),
+		Candidates:     envInt("TAOCP_SOLVER_CANDIDATES", DefaultCandidates),
 		MaxRetries:     envInt("TAOCP_SOLVER_MAX_RETRIES", 4),
 		Parallel:       envInt("TAOCP_SOLVER_PARALLEL", min(2, runtime.NumCPU())),
 	}
@@ -55,6 +58,12 @@ func (c *Config) Normalize() {
 	}
 	if c.MaxCorrections < 0 {
 		c.MaxCorrections = 0
+	}
+	if c.Candidates < 1 {
+		c.Candidates = 1
+	}
+	if c.Candidates > 5 {
+		c.Candidates = 5
 	}
 	if c.MaxRetries < 0 {
 		c.MaxRetries = 0

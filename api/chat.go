@@ -58,6 +58,16 @@ type chatChunk struct {
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+		CacheReadTokens  int `json:"cache_read_input_tokens"`
+		CacheWriteTokens int `json:"cache_creation_input_tokens"`
+		PromptDetails    struct {
+			CachedTokens     int `json:"cached_tokens"`
+			CacheWriteTokens int `json:"cache_write_tokens"`
+		} `json:"prompt_tokens_details"`
+		CompletionDetails struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -190,8 +200,7 @@ func parseChatStream(reader io.Reader) (Response, error) {
 			output.WriteString(choice.Message.Content)
 		}
 		if chunk.Usage != nil {
-			response.InputTokens = chunk.Usage.PromptTokens
-			response.OutputTokens = chunk.Usage.CompletionTokens
+			setChatUsage(&response, chunk)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -219,14 +228,38 @@ func parseChatJSON(raw []byte) (Response, error) {
 		text.WriteString(choice.Delta.Content)
 	}
 	if chunk.Usage != nil {
-		response.InputTokens = chunk.Usage.PromptTokens
-		response.OutputTokens = chunk.Usage.CompletionTokens
+		setChatUsage(&response, chunk)
 	}
 	response.Text = strings.TrimSpace(text.String())
 	if response.Text == "" {
 		return Response{}, errors.New("chat completions API returned no text")
 	}
 	return response, nil
+}
+
+func setChatUsage(response *Response, chunk chatChunk) {
+	if chunk.Usage == nil {
+		return
+	}
+	cached := chunk.Usage.PromptDetails.CachedTokens
+	if cached == 0 {
+		cached = chunk.Usage.CacheReadTokens
+	}
+	cacheWrite := chunk.Usage.PromptDetails.CacheWriteTokens
+	if cacheWrite == 0 {
+		cacheWrite = chunk.Usage.CacheWriteTokens
+	}
+	usage := Usage{
+		InputTokens:       chunk.Usage.PromptTokens,
+		CachedInputTokens: cached,
+		CacheWriteTokens:  cacheWrite,
+		OutputTokens:      chunk.Usage.CompletionTokens,
+		ReasoningTokens:   chunk.Usage.CompletionDetails.ReasoningTokens,
+		TotalTokens:       chunk.Usage.TotalTokens,
+	}.Normalized()
+	response.InputTokens = usage.InputTokens
+	response.OutputTokens = usage.OutputTokens
+	response.Usage = usage
 }
 
 func (c *ChatClient) sleep(ctx context.Context, duration time.Duration) error {

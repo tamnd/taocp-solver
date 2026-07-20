@@ -27,7 +27,7 @@ func TestCompleteResponsesAPI(t *testing.T) {
 			t.Errorf("unexpected body: %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp_1","model":"gpt-5.6","output":[{"type":"message","content":[{"type":"output_text","text":"solution"}]}],"usage":{"input_tokens":11,"output_tokens":7}}`))
+		_, _ = w.Write([]byte(`{"id":"resp_1","model":"gpt-5.6","output":[{"type":"message","content":[{"type":"output_text","text":"solution"}]}],"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,"input_tokens_details":{"cached_tokens":4,"cache_write_tokens":2},"output_tokens_details":{"reasoning_tokens":3}}}`))
 	}))
 	defer server.Close()
 
@@ -38,6 +38,9 @@ func TestCompleteResponsesAPI(t *testing.T) {
 	}
 	if response.Text != "solution" || response.InputTokens != 11 || response.OutputTokens != 7 {
 		t.Fatalf("response = %+v", response)
+	}
+	if response.Usage.CachedInputTokens != 4 || response.Usage.CacheWriteTokens != 2 || response.Usage.ReasoningTokens != 3 || response.Usage.TotalTokens != 18 {
+		t.Fatalf("usage = %+v", response.Usage)
 	}
 }
 

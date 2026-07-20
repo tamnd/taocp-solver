@@ -18,8 +18,8 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/tamnd/taocp-solver/api"
+	"github.com/tamnd/taocp-solver/benchmark"
 	"github.com/tamnd/taocp-solver/config"
-	"github.com/tamnd/taocp-solver/evaluation"
 	"github.com/tamnd/taocp-solver/exercise"
 	"github.com/tamnd/taocp-solver/prompt"
 	"github.com/tamnd/taocp-solver/result"
@@ -59,8 +59,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runPrompt(args[1:], stdout, stderr)
 	case "review":
 		return runReview(ctx, args[1:], stdout, stderr)
-	case "compare":
-		return runCompare(ctx, args[1:], stdout, stderr)
+	case "benchmark":
+		return runBenchmark(ctx, args[1:], stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q; run taocp-solver help", args[0])
 	}
@@ -97,10 +97,11 @@ func runSolve(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	fs := pflag.NewFlagSet("solve", pflag.ContinueOnError)
 	fs.SetOutput(stderr)
 	common := bindCommon(fs, config.FromEnv())
-	verify := fs.Bool("verify", true, "run independent review and correction")
+	mode := fs.String("mode", string(solver.ModeSlow), "solve mode: fast or slow")
 	force := fs.Bool("force", false, "ignore a cached solution")
 	jsonOutput := fs.Bool("json", false, "write the full result as JSON")
 	fs.IntVar(&common.config.MaxCorrections, "max-corrections", common.config.MaxCorrections, "maximum correction passes")
+	fs.IntVar(&common.config.Candidates, "candidates", common.config.Candidates, "independent solution candidates, 1 to 5")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -112,9 +113,14 @@ func runSolve(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	engine := newEngine(common.config, stderr)
+	solveMode, err := parseMode(*mode)
+	if err != nil {
+		return err
+	}
 	value, err := engine.Solve(ctx, section, number, solver.Options{
-		Model: common.config.Model, Verify: *verify, Force: *force,
+		Mode: solveMode, Model: common.config.Model, Force: *force,
 		MaxCorrections: common.config.MaxCorrections,
+		Candidates:     common.config.Candidates,
 	})
 	if err != nil {
 		return err
@@ -125,19 +131,22 @@ func runSolve(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if _, err := fmt.Fprintln(stdout, engine.Store.MarkdownPath(section, number)); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stderr, "verdict: %s, elapsed: %s\n", value.Verdict, value.SolveTime)
-	return err
+	if _, err = fmt.Fprintf(stderr, "verdict: %s, truth: %t, elapsed: %s\n", value.Verdict, value.Evaluation.True, value.SolveTime); err != nil {
+		return err
+	}
+	return printMetrics(stderr, value.Metrics.CurrentRun)
 }
 
 func runBatch(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := pflag.NewFlagSet("batch", pflag.ContinueOnError)
 	fs.SetOutput(stderr)
 	common := bindCommon(fs, config.FromEnv())
-	verify := fs.Bool("verify", true, "run independent review and correction")
+	mode := fs.String("mode", string(solver.ModeSlow), "solve mode: fast or slow")
 	force := fs.Bool("force", false, "solve exercises that already have cached results")
 	jsonOutput := fs.Bool("json", false, "write results as a JSON array")
 	fs.IntVar(&common.config.Parallel, "parallel", common.config.Parallel, "parallel exercises")
 	fs.IntVar(&common.config.MaxCorrections, "max-corrections", common.config.MaxCorrections, "maximum correction passes")
+	fs.IntVar(&common.config.Candidates, "candidates", common.config.Candidates, "independent solution candidates per exercise, 1 to 5")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -145,6 +154,10 @@ func runBatch(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return errors.New("batch requires at least one section")
 	}
 	if err := common.finish(true); err != nil {
+		return err
+	}
+	solveMode, err := parseMode(*mode)
+	if err != nil {
 		return err
 	}
 	engine := newEngine(common.config, stderr)
@@ -182,8 +195,9 @@ func runBatch(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 			defer workers.Done()
 			for item := range jobs {
 				value, err := engine.Solve(ctx, item.section, item.number, solver.Options{
-					Model: common.config.Model, Verify: *verify, Force: *force,
+					Mode: solveMode, Model: common.config.Model, Force: *force,
 					MaxCorrections: common.config.MaxCorrections,
+					Candidates:     common.config.Candidates,
 				})
 				if err != nil {
 					select {
@@ -300,14 +314,14 @@ func runReview(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	return err
 }
 
-func runCompare(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := pflag.NewFlagSet("compare", pflag.ContinueOnError)
+func runBenchmark(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := pflag.NewFlagSet("benchmark", pflag.ContinueOnError)
 	fs.SetOutput(stderr)
 	common := bindCommon(fs, config.FromEnv())
-	home, _ := os.UserHomeDir()
-	candidateFile := fs.String("candidate", "", "new solution file, defaults to the cached Markdown result")
-	brainRoot := fs.String("brain", filepath.Join(home, "github", "tamnd", "brain", "content", "en", "practice", "maths", "taocp"), "brain TAOCP directory")
-	jsonOutput := fs.Bool("json", false, "write the complete comparison report as JSON")
+	jsonOutput := fs.Bool("json", false, "write the complete benchmark report as JSON")
+	reuse := fs.Bool("reuse", false, "reuse saved mode results and rerun only blind quality evaluation")
+	fs.IntVar(&common.config.MaxCorrections, "max-corrections", common.config.MaxCorrections, "maximum slow-mode correction passes")
+	fs.IntVar(&common.config.Candidates, "candidates", common.config.Candidates, "slow-mode candidates, 1 to 5")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -319,40 +333,56 @@ func runCompare(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		return err
 	}
 	engine := newEngine(common.config, stderr)
-	if *candidateFile == "" {
-		*candidateFile = engine.Store.MarkdownPath(section, number)
+	runner := benchmark.Runner{
+		Repository: engine.Repository, Client: engine.Client,
+		OutputRoot: filepath.Join(common.config.OutputRoot, "benchmarks", fmt.Sprintf("%s-%d", section, number)),
+		Model:      common.config.Model, Candidates: common.config.Candidates,
+		MaxCorrections: common.config.MaxCorrections, Progress: engine.Progress,
 	}
-	candidate, err := os.ReadFile(*candidateFile)
-	if err != nil {
-		return fmt.Errorf("read candidate solution: %w", err)
+	var report benchmark.Report
+	if *reuse {
+		fast, loadErr := (result.Store{Root: filepath.Join(runner.OutputRoot, "fast")}).Load(section, number)
+		if loadErr != nil {
+			return fmt.Errorf("load fast benchmark result: %w", loadErr)
+		}
+		slow, loadErr := (result.Store{Root: filepath.Join(runner.OutputRoot, "slow")}).Load(section, number)
+		if loadErr != nil {
+			return fmt.Errorf("load slow benchmark result: %w", loadErr)
+		}
+		report, err = runner.Compare(ctx, section, number, fast, slow)
+	} else {
+		report, err = runner.Run(ctx, section, number)
 	}
-	ex, _, err := engine.Repository.Load(section, number)
-	if err != nil {
-		return err
-	}
-	baseline, baselinePath, err := evaluation.LoadBrainSolution(*brainRoot, ex.Volume, section, number)
-	if err != nil {
-		return err
-	}
-	comparator := evaluation.Comparator{
-		Repository: engine.Repository, Client: engine.Client, Model: common.config.Model,
-	}
-	report, err := comparator.Compare(ctx, section, number, string(candidate), baseline)
 	if err != nil {
 		return err
 	}
 	if *jsonOutput {
 		return writeJSON(stdout, report)
 	}
-	if _, err := fmt.Fprintf(stdout, "winner: %s\nnew: %s\nbrain: %s\n", report.Winner, *candidateFile, baselinePath); err != nil {
+	if _, err := fmt.Fprintf(stdout, "quality winner: %s\n", report.Winner); err != nil {
 		return err
 	}
-	for i, judgment := range report.Judgments {
-		if _, err := fmt.Fprintf(stdout, "\n## Judgment %d (%s)\n\n%s\n", i+1, judgment.Order, judgment.Review); err != nil {
-			return err
-		}
+	if _, err := fmt.Fprintln(stdout, "fast mode:"); err != nil {
+		return err
 	}
-	return nil
+	if err := printMetrics(stdout, report.Fast.Metrics.CurrentRun); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(stdout, "slow mode:"); err != nil {
+		return err
+	}
+	if err := printMetrics(stdout, report.Slow.Metrics.CurrentRun); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "slow minus fast: %d tokens, $%.6f USD, %.2fx tokens, %.2fx list cost\n",
+		report.Difference.TotalTokens, report.Difference.ListCostUSD,
+		report.Difference.TokenRatio, report.Difference.CostRatio); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(stdout, "blind quality evaluation:"); err != nil {
+		return err
+	}
+	return printMetrics(stdout, report.EvaluationMetrics.CurrentRun)
 }
 
 func newEngine(cfg config.Config, stderr io.Writer) *solver.Engine {
@@ -389,14 +419,39 @@ func parseTarget(args []string) (string, int, error) {
 	return args[0], number, nil
 }
 
+func parseMode(value string) (solver.Mode, error) {
+	mode := solver.Mode(strings.ToLower(strings.TrimSpace(value)))
+	if mode != solver.ModeFast && mode != solver.ModeSlow {
+		return "", fmt.Errorf("invalid mode %q; want fast or slow", value)
+	}
+	return mode, nil
+}
+
 func writeJSON(w io.Writer, value any) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
 }
 
+func printMetrics(w io.Writer, metrics result.MetricSet) error {
+	tokens := metrics.Tokens
+	if _, err := fmt.Fprintf(w,
+		"tokens: input %d (uncached %d, cached %d, cache write %d), output %d (reasoning %d), total %d across %d requests\n",
+		tokens.InputTokens, tokens.UncachedInputTokens, tokens.CachedInputTokens,
+		tokens.CacheWriteTokens, tokens.OutputTokens, tokens.ReasoningTokens,
+		tokens.TotalTokens, tokens.Requests); err != nil {
+		return err
+	}
+	if metrics.UnpricedRequests > 0 {
+		_, err := fmt.Fprintf(w, "official list cost estimate: unavailable for %d of %d requests\n", metrics.UnpricedRequests, tokens.Requests)
+		return err
+	}
+	_, err := fmt.Fprintf(w, "official list cost estimate: $%.6f USD\n", metrics.ListCost.TotalUSD)
+	return err
+}
+
 func usage(w io.Writer) error {
-	_, err := fmt.Fprint(w, `taocp solves, reviews, and compares TAOCP exercises through an OpenAI-compatible bridge or proxy.
+	_, err := fmt.Fprint(w, `taocp solves and reviews TAOCP exercises through an OpenAI-compatible bridge or proxy.
 
 Usage:
   taocp solve SECTION NUMBER [flags]
@@ -404,7 +459,7 @@ Usage:
   taocp batch SECTION... [flags]
   taocp prompt SECTION NUMBER [flags]
   taocp review SECTION NUMBER --file solution.md [flags]
-  taocp compare SECTION NUMBER [flags]
+  taocp benchmark SECTION NUMBER [flags]
   taocp version
 
 Run a command with -h to see its flags.

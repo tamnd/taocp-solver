@@ -22,3 +22,17 @@ func TestChatCompletionsURL(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestNormalizeCandidateBounds(t *testing.T) {
+	t.Parallel()
+	cfg := Config{Candidates: 99, Timeout: 1}
+	cfg.Normalize()
+	if cfg.Candidates != 5 {
+		t.Fatalf("candidates = %d", cfg.Candidates)
+	}
+	cfg.Candidates = 0
+	cfg.Normalize()
+	if cfg.Candidates != 1 {
+		t.Fatalf("candidates = %d", cfg.Candidates)
+	}
+}

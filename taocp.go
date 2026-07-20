@@ -98,6 +98,12 @@ func (c *Client) Solve(ctx context.Context, section string, number int, options 
 	if options.MaxCorrections < 0 {
 		options.MaxCorrections = 0
 	}
+	if options.Candidates < 1 {
+		options.Candidates = c.Config.Candidates
+	}
+	if options.Mode == solver.ModeSlow {
+		options.Verify = true
+	}
 	return c.Engine.Solve(ctx, section, number, options)
 }
 

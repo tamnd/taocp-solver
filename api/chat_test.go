@@ -19,7 +19,7 @@ func TestChatClientStream(t *testing.T) {
 		_, _ = fmt.Fprintln(w)
 		_, _ = fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"solution"}}]}`)
 		_, _ = fmt.Fprintln(w)
-		_, _ = fmt.Fprintln(w, `data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5}}`)
+		_, _ = fmt.Fprintln(w, `data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17,"prompt_tokens_details":{"cached_tokens":4,"cache_write_tokens":2},"completion_tokens_details":{"reasoning_tokens":3}}}`)
 		_, _ = fmt.Fprintln(w)
 		_, _ = fmt.Fprintln(w, "data: [DONE]")
 	}))
@@ -31,5 +31,8 @@ func TestChatClientStream(t *testing.T) {
 	}
 	if response.Text != "rigorous solution" || response.InputTokens != 12 || response.OutputTokens != 5 {
 		t.Fatalf("response = %+v", response)
+	}
+	if response.Usage.CachedInputTokens != 4 || response.Usage.CacheWriteTokens != 2 || response.Usage.ReasoningTokens != 3 || response.Usage.TotalTokens != 17 {
+		t.Fatalf("usage = %+v", response.Usage)
 	}
 }

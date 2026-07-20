@@ -32,6 +32,38 @@ type Response struct {
 	Text         string `json:"text"`
 	InputTokens  int    `json:"input_tokens"`
 	OutputTokens int    `json:"output_tokens"`
+	Usage        Usage  `json:"usage"`
+}
+
+// Usage is the billable token accounting returned by the provider. InputTokens
+// includes cached reads and cache writes. ReasoningTokens is a subset of
+// OutputTokens and must not be added again when calculating cost.
+type Usage struct {
+	InputTokens       int `json:"input_tokens"`
+	CachedInputTokens int `json:"cached_input_tokens"`
+	CacheWriteTokens  int `json:"cache_write_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	ReasoningTokens   int `json:"reasoning_tokens"`
+	TotalTokens       int `json:"total_tokens"`
+}
+
+// Normalized fills totals omitted by compatible proxies and prevents malformed
+// cache detail from producing negative uncached token counts.
+func (u Usage) Normalized() Usage {
+	u.InputTokens = max(0, u.InputTokens)
+	u.OutputTokens = max(0, u.OutputTokens)
+	u.CachedInputTokens = min(max(0, u.CachedInputTokens), u.InputTokens)
+	u.CacheWriteTokens = min(max(0, u.CacheWriteTokens), u.InputTokens-u.CachedInputTokens)
+	u.ReasoningTokens = min(max(0, u.ReasoningTokens), u.OutputTokens)
+	if u.TotalTokens <= 0 {
+		u.TotalTokens = u.InputTokens + u.OutputTokens
+	}
+	return u
+}
+
+func (u Usage) UncachedInputTokens() int {
+	u = u.Normalized()
+	return u.InputTokens - u.CachedInputTokens - u.CacheWriteTokens
 }
 
 type Client struct {
@@ -68,8 +100,19 @@ type wireResponse struct {
 		} `json:"content"`
 	} `json:"output"`
 	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens       int `json:"input_tokens"`
+		CachedInputTokens int `json:"cached_input_tokens"`
+		CacheWriteTokens  int `json:"cache_write_tokens"`
+		OutputTokens      int `json:"output_tokens"`
+		ReasoningTokens   int `json:"reasoning_tokens"`
+		TotalTokens       int `json:"total_tokens"`
+		InputDetails      struct {
+			CachedTokens     int `json:"cached_tokens"`
+			CacheWriteTokens int `json:"cache_write_tokens"`
+		} `json:"input_tokens_details"`
+		OutputDetails struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"output_tokens_details"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -187,12 +230,31 @@ func (c *Client) do(ctx context.Context, payload []byte) (Response, time.Duratio
 	if text == "" {
 		return Response{}, 0, true, errors.New("responses API returned no text")
 	}
+	usage := Usage{
+		InputTokens:       decoded.Usage.InputTokens,
+		CachedInputTokens: decoded.Usage.InputDetails.CachedTokens,
+		CacheWriteTokens:  decoded.Usage.InputDetails.CacheWriteTokens,
+		OutputTokens:      decoded.Usage.OutputTokens,
+		ReasoningTokens:   decoded.Usage.OutputDetails.ReasoningTokens,
+		TotalTokens:       decoded.Usage.TotalTokens,
+	}
+	if usage.CachedInputTokens == 0 {
+		usage.CachedInputTokens = decoded.Usage.CachedInputTokens
+	}
+	if usage.CacheWriteTokens == 0 {
+		usage.CacheWriteTokens = decoded.Usage.CacheWriteTokens
+	}
+	if usage.ReasoningTokens == 0 {
+		usage.ReasoningTokens = decoded.Usage.ReasoningTokens
+	}
+	usage = usage.Normalized()
 	return Response{
 		ID:           decoded.ID,
 		Model:        decoded.Model,
 		Text:         text,
-		InputTokens:  decoded.Usage.InputTokens,
-		OutputTokens: decoded.Usage.OutputTokens,
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		Usage:        usage,
 	}, 0, false, nil
 }
 

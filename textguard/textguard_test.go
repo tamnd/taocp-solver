@@ -39,3 +39,21 @@ func TestScore(t *testing.T) {
 		t.Fatalf("got %d", got)
 	}
 }
+
+func TestParseAssessment(t *testing.T) {
+	t.Parallel()
+	got := ParseAssessment("TRUTH: TRUE\nCOMPLETE: YES\nSELF_CONTAINED: YES\nHUMAN_READABLE: YES\nVERIFIABLE: NO")
+	if !got.HasTruth || !got.HasQuality || !got.Truth || !got.Complete || !got.SelfContained || !got.HumanReadable || got.Verifiable {
+		t.Fatalf("assessment = %+v", got)
+	}
+}
+
+func TestSelectedCandidate(t *testing.T) {
+	t.Parallel()
+	if got := SelectedCandidate("reason\nSELECTED: 3"); got != 3 {
+		t.Fatalf("selected = %d", got)
+	}
+	if got := SelectedCandidate("SELECTED: 0"); got != 0 {
+		t.Fatalf("invalid selected = %d", got)
+	}
+}
