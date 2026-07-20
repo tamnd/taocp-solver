@@ -63,6 +63,14 @@ func TestProfileCostDistinguishesFreeLocalAndOfficial(t *testing.T) {
 	}
 }
 
+func TestPublishedPriceCanBeRecordedBeforeProviderCall(t *testing.T) {
+	t.Parallel()
+	_, card, note := profileCost(ModelProfile{Model: "north-mini-code-free", CostBasis: "free"}, result.MetricSet{})
+	if !card.Available || card.Source != pricing.ZenSourceURL || note == "" {
+		t.Fatalf("pre-call price = %+v, %q", card, note)
+	}
+}
+
 func TestManifestRejectsDuplicateNamesAndInvalidModes(t *testing.T) {
 	t.Parallel()
 	manifest := DefaultManifest()

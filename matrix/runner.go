@@ -259,7 +259,11 @@ func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, referen
 			return cached
 		}
 	}
-	value := Case{Model: item.profile, Exercise: item.exercise, Mode: item.mode, Status: "provider_error"}
+	_, card, costNote := profileCost(item.profile, result.MetricSet{})
+	value := Case{
+		Model: item.profile, Exercise: item.exercise, Mode: item.mode, Status: "provider_error",
+		PublishedListPrice: card, CostNote: costNote,
+	}
 	client := r.client(item.profile)
 	engine := &solver.Engine{
 		Repository: r.Repository, Client: client,
