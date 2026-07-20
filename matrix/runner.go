@@ -253,42 +253,62 @@ func jobKey(item job) string {
 func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, reference evaluation.Reference, item job) Case {
 	started := time.Now()
 	path := r.casePath(item)
+	var value Case
 	if r.Resume {
 		var cached Case
-		if loadJSON(path, &cached) == nil && cached.Status == "completed" {
-			return cached
+		if loadJSON(path, &cached) == nil {
+			if cached.Status == "completed" {
+				return cached
+			}
+			if cached.Generation.Solution != "" {
+				value = cached
+			}
 		}
 	}
-	_, card, costNote := profileCost(item.profile, result.MetricSet{})
-	value := Case{
-		Model: item.profile, Exercise: item.exercise, Mode: item.mode, Status: "provider_error",
-		PublishedListPrice: card, CostNote: costNote,
-	}
-	client := r.client(item.profile)
-	engine := &solver.Engine{
-		Repository: r.Repository, Client: client,
-		Store: result.Store{Root: filepath.Join(r.OutputRoot, "solutions", safe(item.profile.Name), string(item.mode))},
-	}
-	generation, err := engine.Solve(ctx, item.exercise.Section, item.exercise.Number, solver.Options{
-		Mode: item.mode, Model: item.profile.Model, Force: true,
-		Candidates: r.Candidates, MaxCorrections: r.MaxCorrections,
-	})
-	if err != nil {
-		value.Error = err.Error()
+	elapsedBefore := value.Elapsed
+	if value.Generation.Solution == "" {
+		_, card, costNote := profileCost(item.profile, result.MetricSet{})
+		value = Case{
+			Model: item.profile, Exercise: item.exercise, Mode: item.mode, Status: "provider_error",
+			PublishedListPrice: card, CostNote: costNote,
+		}
+		client := r.client(item.profile)
+		engine := &solver.Engine{
+			Repository: r.Repository, Client: client,
+			Store: result.Store{Root: filepath.Join(r.OutputRoot, "solutions", safe(item.profile.Name), string(item.mode))},
+		}
+		generation, err := engine.Solve(ctx, item.exercise.Section, item.exercise.Number, solver.Options{
+			Mode: item.mode, Model: item.profile.Model, Force: true,
+			Candidates: r.Candidates, MaxCorrections: r.MaxCorrections,
+		})
+		if err != nil {
+			value.Error = err.Error()
+			value.Elapsed = time.Since(started).Round(time.Millisecond)
+			_ = saveJSON(path, value)
+			return value
+		}
+		value.Generation = generation
+		value.GenerationCostUSD, value.PublishedListPrice, value.CostNote = profileCost(item.profile, generation.Metrics.CurrentRun)
+		value.Status = "evaluation_pending"
+		value.Error = ""
 		value.Elapsed = time.Since(started).Round(time.Millisecond)
-		_ = saveJSON(path, value)
-		return value
+		if err := saveJSON(path, value); err != nil {
+			value.Status = "evaluation_error"
+			value.Error = fmt.Sprintf("save generation checkpoint: %v", err)
+			return value
+		}
+		elapsedBefore = value.Elapsed
+		started = time.Now()
 	}
-	value.Generation = generation
-	value.GenerationCostUSD, value.PublishedListPrice, value.CostNote = profileCost(item.profile, generation.Metrics.CurrentRun)
 	ex, source, err := r.Repository.Load(item.exercise.Section, item.exercise.Number)
 	if err != nil {
 		value.Status = "evaluation_error"
 		value.Error = err.Error()
+		value.Elapsed = elapsedBefore + time.Since(started).Round(time.Millisecond)
 		_ = saveJSON(path, value)
 		return value
 	}
-	audit, err := auditor.Evaluate(ctx, ex, source, reference.Text, generation.Solution)
+	audit, err := auditor.Evaluate(ctx, ex, source, reference.Text, value.Generation.Solution)
 	if err != nil {
 		value.Status = "evaluation_error"
 		value.Error = err.Error()
@@ -296,7 +316,7 @@ func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, referen
 		value.Status = "completed"
 		value.IndependentAudit = audit
 	}
-	value.Elapsed = time.Since(started).Round(time.Millisecond)
+	value.Elapsed = elapsedBefore + time.Since(started).Round(time.Millisecond)
 	_ = saveJSON(path, value)
 	return value
 }
