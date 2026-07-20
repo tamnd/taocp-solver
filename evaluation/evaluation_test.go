@@ -52,11 +52,37 @@ func TestEvaluateRequiresBothIndependentJudges(t *testing.T) {
 
 func TestEvaluateRejectsIncompleteDecisionFields(t *testing.T) {
 	t.Parallel()
-	client := &scriptedCompleter{responses: []api.Response{{Text: "SCORE: 7/7\nTRUTH: TRUE\nVERDICT: PASS"}}}
-	_, err := (Auditor{Client: client, Model: "gpt-5.6-sol"}).Evaluate(
+	client := &scriptedCompleter{responses: []api.Response{
+		{Text: "SCORE: 7/7\nTRUTH: TRUE\nVERDICT: PASS", Usage: api.Usage{InputTokens: 10, OutputTokens: 5}},
+		{Text: "SCORE: 7/7\nTRUTH: TRUE\nVERDICT: PASS", Usage: api.Usage{InputTokens: 10, OutputTokens: 5}},
+	}}
+	report, err := (Auditor{Client: client, Model: "gpt-5.6-sol"}).Evaluate(
 		context.Background(), sampleExercise(), exercise.Context{}, "Reference", "Proposal")
 	if err == nil || !strings.Contains(err.Error(), "incomplete decision fields") {
 		t.Fatalf("error = %v", err)
+	}
+	if report.Metrics.CurrentRun.Tokens.Requests != 2 || report.Metrics.CurrentRun.Tokens.TotalTokens != 30 {
+		t.Fatalf("partial metrics = %+v", report.Metrics.CurrentRun)
+	}
+}
+
+func TestEvaluateRetriesIncompleteDecisionWithoutDroppingUsage(t *testing.T) {
+	t.Parallel()
+	client := &scriptedCompleter{responses: []api.Response{
+		{Text: "SCORE: 7/7\nTRUTH: TRUE\nVERDICT: PASS", Usage: api.Usage{InputTokens: 10, OutputTokens: 5}},
+		{Text: passingTruthReview(), Usage: api.Usage{InputTokens: 20, OutputTokens: 10}},
+		{Text: "TRUTH: TRUE\nVERDICT: PASS", Usage: api.Usage{InputTokens: 30, OutputTokens: 15}},
+	}}
+	report, err := (Auditor{Client: client, Model: "gpt-5.6-sol"}).Evaluate(
+		context.Background(), sampleExercise(), exercise.Context{}, "Reference", "Proposal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Publishable || len(report.Attempts) != 3 || report.Metrics.CurrentRun.Tokens.Requests != 3 || report.Metrics.CurrentRun.Tokens.TotalTokens != 90 {
+		t.Fatalf("report = %+v", report)
+	}
+	if client.requests[0].Metadata["decision_attempt"] != "1" || client.requests[1].Metadata["decision_attempt"] != "2" {
+		t.Fatalf("requests = %+v", client.requests)
 	}
 }
 

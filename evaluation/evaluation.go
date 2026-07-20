@@ -18,9 +18,10 @@ import (
 )
 
 type Auditor struct {
-	Client  api.Completer
-	Model   string
-	Prompts prompt.Builder
+	Client              api.Completer
+	Model               string
+	Prompts             prompt.Builder
+	MaxDecisionAttempts int
 }
 
 type Reference struct {
@@ -74,42 +75,66 @@ func (a Auditor) Evaluate(ctx context.Context, ex exercise.Exercise, source exer
 	}
 	started := time.Now()
 	instructions, input := a.Prompts.ReviewTruth(ex, source, reference, solution)
-	truthResponse, err := a.Client.Complete(ctx, api.Request{
-		Model: a.Model, Instructions: instructions, Input: input, Effort: "high",
-		Metadata: map[string]string{"task": "taocp-evaluation-truth", "exercise": fmt.Sprintf("%s.%d", ex.SectionID, ex.Number)},
-	})
-	if err != nil {
-		return Report{}, fmt.Errorf("criteria truth judge: %w", err)
+	maxAttempts := a.MaxDecisionAttempts
+	if maxAttempts < 1 {
+		maxAttempts = 2
 	}
-	truthText := textguard.CleanGeneratedText(truthResponse.Text)
-	truthVerdict := textguard.Verdict(truthText)
-	score := textguard.Score(truthText)
-	assessment := textguard.ParseAssessment(truthText)
-	if truthVerdict == "UNKNOWN" || score < 0 || !assessment.HasTruth || !assessment.HasQuality {
-		return Report{}, errors.New("criteria truth judge returned incomplete decision fields")
+	var attempts []result.Attempt
+	var truthText, truthVerdict string
+	var score int
+	var assessment textguard.Assessment
+	for decisionAttempt := 1; decisionAttempt <= maxAttempts; decisionAttempt++ {
+		truthResponse, err := a.Client.Complete(ctx, api.Request{
+			Model: a.Model, Instructions: instructions, Input: input, Effort: "high",
+			Metadata: map[string]string{
+				"task": "taocp-evaluation-truth", "exercise": fmt.Sprintf("%s.%d", ex.SectionID, ex.Number),
+				"decision_attempt": fmt.Sprintf("%d", decisionAttempt),
+			},
+		})
+		if err != nil {
+			return partialReport(attempts, started), fmt.Errorf("criteria truth judge: %w", err)
+		}
+		attempts = append(attempts, makeAttempt("evaluation-truth", a.Model, truthResponse))
+		truthText = textguard.CleanGeneratedText(truthResponse.Text)
+		truthVerdict = textguard.Verdict(truthText)
+		score = textguard.Score(truthText)
+		assessment = textguard.ParseAssessment(truthText)
+		if truthVerdict != "UNKNOWN" && score >= 0 && assessment.HasTruth && assessment.HasQuality {
+			break
+		}
+		if decisionAttempt == maxAttempts {
+			return partialReport(attempts, started), errors.New("criteria truth judge returned incomplete decision fields")
+		}
 	}
 	truthPassed := truthVerdict == "PASS" && assessment.Truth && assessment.Complete &&
 		assessment.SelfContained && assessment.HumanReadable && assessment.Verifiable && score >= 6
 
 	instructions, input = a.Prompts.ReviewProcess(ex, source, solution)
-	auditResponse, err := a.Client.Complete(ctx, api.Request{
-		Model: a.Model, Instructions: instructions, Input: input, Effort: "high",
-		Metadata: map[string]string{"task": "taocp-evaluation-falsification", "exercise": fmt.Sprintf("%s.%d", ex.SectionID, ex.Number)},
-	})
-	if err != nil {
-		return Report{}, fmt.Errorf("adversarial audit judge: %w", err)
-	}
-	auditText := textguard.CleanGeneratedText(auditResponse.Text)
-	auditVerdict := textguard.Verdict(auditText)
-	auditAssessment := textguard.ParseAssessment(auditText)
-	if auditVerdict == "UNKNOWN" || !auditAssessment.HasTruth {
-		return Report{}, errors.New("adversarial audit judge returned incomplete decision fields")
+	var auditText, auditVerdict string
+	var auditAssessment textguard.Assessment
+	for decisionAttempt := 1; decisionAttempt <= maxAttempts; decisionAttempt++ {
+		auditResponse, err := a.Client.Complete(ctx, api.Request{
+			Model: a.Model, Instructions: instructions, Input: input, Effort: "high",
+			Metadata: map[string]string{
+				"task": "taocp-evaluation-falsification", "exercise": fmt.Sprintf("%s.%d", ex.SectionID, ex.Number),
+				"decision_attempt": fmt.Sprintf("%d", decisionAttempt),
+			},
+		})
+		if err != nil {
+			return partialReport(attempts, started), fmt.Errorf("adversarial audit judge: %w", err)
+		}
+		attempts = append(attempts, makeAttempt("evaluation-falsification", a.Model, auditResponse))
+		auditText = textguard.CleanGeneratedText(auditResponse.Text)
+		auditVerdict = textguard.Verdict(auditText)
+		auditAssessment = textguard.ParseAssessment(auditText)
+		if auditVerdict != "UNKNOWN" && auditAssessment.HasTruth {
+			break
+		}
+		if decisionAttempt == maxAttempts {
+			return partialReport(attempts, started), errors.New("adversarial audit judge returned incomplete decision fields")
+		}
 	}
 	auditPassed := auditVerdict == "PASS" && auditAssessment.Truth
-	attempts := []result.Attempt{
-		makeAttempt("evaluation-truth", a.Model, truthResponse),
-		makeAttempt("evaluation-falsification", a.Model, auditResponse),
-	}
 	return Report{
 		Truth:       assessment.Truth && auditAssessment.Truth,
 		Publishable: truthPassed && auditPassed,
@@ -120,6 +145,13 @@ func (a Auditor) Evaluate(ctx context.Context, ex exercise.Exercise, source exer
 		TruthReview:  truthText, AuditReview: auditText, Attempts: attempts,
 		Metrics: result.BuildMetrics(attempts), Elapsed: time.Since(started).Round(time.Millisecond),
 	}, nil
+}
+
+func partialReport(attempts []result.Attempt, started time.Time) Report {
+	return Report{
+		Attempts: attempts, Metrics: result.BuildMetrics(attempts),
+		Elapsed: time.Since(started).Round(time.Millisecond),
+	}
 }
 
 func makeAttempt(phase, requestedModel string, response api.Response) result.Attempt {

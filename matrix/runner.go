@@ -310,12 +310,12 @@ func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, referen
 		return value
 	}
 	audit, err := auditor.Evaluate(ctx, ex, source, reference.Text, value.Generation.Solution)
+	value.IndependentAudit = audit
 	if err != nil {
 		value.Status = "evaluation_error"
 		value.Error = err.Error()
 	} else {
 		value.Status = "completed"
-		value.IndependentAudit = audit
 	}
 	value.Elapsed = elapsedBefore + time.Since(started).Round(time.Millisecond)
 	_ = saveJSON(path, value)
