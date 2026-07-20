@@ -1,0 +1,12 @@
+FROM alpine:3.22
+
+ARG TARGETPLATFORM
+
+RUN apk add --no-cache ca-certificates \
+ && adduser -D -u 10001 taocp
+
+COPY $TARGETPLATFORM/taocp /usr/bin/taocp
+
+USER taocp
+
+ENTRYPOINT ["/usr/bin/taocp"]

@@ -12,35 +12,163 @@ builds:
     binary: taocp
     env:
       - CGO_ENABLED=0
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
+    flags:
+      - -trimpath
     ldflags:
-      - >-
-        -s -w
-        -X main.version={{.Version}}
-        -X main.commit={{.Commit}}
-        -X main.date={{.Date}}
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    targets:
+      - linux_amd64
+      - linux_arm64
+      - linux_arm_7
+      - linux_386
+      - darwin_amd64
+      - darwin_arm64
+      - windows_amd64
+      - windows_arm64
+      - freebsd_amd64
+      - freebsd_arm64
 
 archives:
-  - formats: [tar.gz]
+  - id: default
+    ids:
+      - taocp
+    name_template: "taocp_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+nfpms:
+  - id: linux-packages
+    package_name: taocp
+    ids:
+      - taocp
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: tamnd
+    homepage: https://github.com/tamnd/taocp-solver
+    maintainer: Duc-Tam Nguyen <tamnd87@gmail.com>
+    description: Solve and audit TAOCP exercises from the command line.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    section: utils
+    contents:
+      - src: ./LICENSE
+        dst: /usr/share/doc/taocp/LICENSE
+
+dockers_v2:
+  - images:
+      - ghcr.io/tamnd/taocp-solver
+    tags:
+      - "{{ .Version }}"
+      - latest
+    dockerfile: Dockerfile.release
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: "Solve and audit TAOCP exercises with reproducible usage and cost metrics"
+      org.opencontainers.image.url: "https://github.com/tamnd/taocp-solver"
+      org.opencontainers.image.source: "https://github.com/tamnd/taocp-solver"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: "MIT"
+
+homebrew_casks:
+  - name: taocp
+    ids:
+      - default
+    repository:
+      owner: tamnd
+      name: homebrew-tap
+      token: '{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}'
+    directory: Casks
+    homepage: https://github.com/tamnd/taocp-solver
+    description: Solve and audit TAOCP exercises
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}false{{ else }}true{{ end }}'
+    commit_author:
+      name: Duc-Tam Nguyen
+      email: tamnd87@gmail.com
+
+scoops:
+  - ids:
+      - default
+    repository:
+      owner: tamnd
+      name: scoop-bucket
+      token: '{{ .Env.SCOOP_BUCKET_GITHUB_TOKEN }}'
+    directory: bucket
+    homepage: https://github.com/tamnd/taocp-solver
+    description: Solve and audit TAOCP exercises
+    license: MIT
+    skip_upload: '{{ if index .Env "SCOOP_BUCKET_GITHUB_TOKEN" }}false{{ else }}true{{ end }}'
+    commit_author:
+      name: Duc-Tam Nguyen
+      email: tamnd87@gmail.com
 
 checksum:
-  name_template: checksums.txt
+  name_template: "checksums.txt"
+  algorithm: sha256
 
 sboms:
-  - artifacts: archive
+  - id: archive
+    artifacts: archive
+
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+docker_signs:
+  - cmd: cosign
+    artifacts: manifests
+    args:
+      - sign
+      - "${artifact}@${digest}"
+      - "--yes"
 
 changelog:
   sort: asc
+  use: github
   filters:
     exclude:
       - "^docs:"
       - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other
+      order: 999
 
 release:
+  github:
+    owner: tamnd
+    name: taocp-solver
+  draft: false
   prerelease: auto

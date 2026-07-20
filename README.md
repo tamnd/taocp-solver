@@ -27,6 +27,14 @@ See [the live evaluation](docs/EVALUATION.md) for a complete solve with both tru
 
 ## Install
 
+Download a release archive or Linux package from the [release page](https://github.com/tamnd/taocp-solver/releases), or pull the container:
+
+```sh
+docker pull ghcr.io/tamnd/taocp-solver:latest
+```
+
+Install directly from source with Go:
+
 ```sh
 go install github.com/tamnd/taocp-solver/cmd/taocp@latest
 ```
