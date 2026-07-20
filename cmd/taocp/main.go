@@ -162,7 +162,11 @@ func runMatrix(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		Manifest: manifest, Repository: exercise.NewRepository(*source), OutputRoot: *output,
 		Timeout: timeout, MaxRetries: *retries, Parallel: *parallel, Resume: *resume,
 		Candidates: *candidates, MaxCorrections: *corrections,
-		Progress: func(message string) { progressMu.Lock(); defer progressMu.Unlock(); fmt.Fprintln(stderr, message) },
+		Progress: func(message string) {
+			progressMu.Lock()
+			defer progressMu.Unlock()
+			_, _ = fmt.Fprintln(stderr, message)
+		},
 	}
 	report, err := runner.Run(ctx)
 	if err != nil {
