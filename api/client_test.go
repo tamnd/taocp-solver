@@ -83,3 +83,23 @@ func TestCompleteDoesNotRetryBadRequest(t *testing.T) {
 		t.Fatalf("err = %v, calls = %d", err, calls.Load())
 	}
 }
+
+func TestCompleteSkipsRetryBeyondDelayLimit(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	var slept atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "3600")
+		http.Error(w, `{"error":{"message":"daily quota"}}`, http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	client := &Client{
+		URL: server.URL, HTTPClient: server.Client(), MaxRetries: 4, MaxRetryDelay: time.Minute,
+		Sleep: func(context.Context, time.Duration) error { slept.Store(true); return nil },
+	}
+	_, err := client.Complete(context.Background(), Request{Model: "test", Input: "x"})
+	if err == nil || calls.Load() != 1 || slept.Load() {
+		t.Fatalf("err = %v, calls = %d, slept = %t", err, calls.Load(), slept.Load())
+	}
+}

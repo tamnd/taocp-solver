@@ -28,8 +28,8 @@ func TestDefaultManifestIsStratifiedAndPriced(t *testing.T) {
 		if !ok || !card.Available {
 			t.Errorf("free profile %q has no published price", profile.Model)
 		}
-		if profile.MaxRetries == nil || *profile.MaxRetries != 0 {
-			t.Errorf("free profile %q retries = %v", profile.Model, profile.MaxRetries)
+		if profile.MaxRetries != nil || profile.MaxRetryDelaySeconds != 60 {
+			t.Errorf("free profile %q retry policy = retries %v, max delay %d", profile.Model, profile.MaxRetries, profile.MaxRetryDelaySeconds)
 		}
 	}
 	sol := manifest.Models[len(manifest.Models)-6]

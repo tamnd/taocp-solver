@@ -67,12 +67,13 @@ func (u Usage) UncachedInputTokens() int {
 }
 
 type Client struct {
-	URL        string
-	APIKey     string
-	HTTPClient *http.Client
-	MaxRetries int
-	UserAgent  string
-	Sleep      func(context.Context, time.Duration) error
+	URL           string
+	APIKey        string
+	HTTPClient    *http.Client
+	MaxRetries    int
+	MaxRetryDelay time.Duration
+	UserAgent     string
+	Sleep         func(context.Context, time.Duration) error
 }
 
 type wireRequest struct {
@@ -153,6 +154,9 @@ func (c *Client) Complete(ctx context.Context, request Request) (Response, error
 		}
 		last = err
 		if !retry || attempt == max(0, c.MaxRetries) {
+			break
+		}
+		if c.MaxRetryDelay > 0 && retryAfter > c.MaxRetryDelay {
 			break
 		}
 		if retryAfter <= 0 {

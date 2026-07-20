@@ -311,19 +311,20 @@ func (r Runner) client(profile ModelProfile) api.Completer {
 	if profile.MaxRetries != nil {
 		maxRetries = *profile.MaxRetries
 	}
+	maxRetryDelay := time.Duration(profile.MaxRetryDelaySeconds) * time.Second
 	base := strings.TrimRight(profile.BaseURL, "/")
 	if profile.Protocol == "responses" {
 		url := base + "/responses"
 		if !strings.HasSuffix(base, "/v1") {
 			url = base + "/v1/responses"
 		}
-		return &api.Client{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, UserAgent: "taocp-matrix"}
+		return &api.Client{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, MaxRetryDelay: maxRetryDelay, UserAgent: "taocp-matrix"}
 	}
 	url := base + "/chat/completions"
 	if !strings.HasSuffix(base, "/v1") {
 		url = base + "/v1/chat/completions"
 	}
-	return &api.ChatClient{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, UserAgent: "taocp-matrix"}
+	return &api.ChatClient{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, MaxRetryDelay: maxRetryDelay, UserAgent: "taocp-matrix"}
 }
 
 func profileCost(profile ModelProfile, metrics result.MetricSet) (float64, pricing.ListPrice, string) {

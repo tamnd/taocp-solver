@@ -19,12 +19,13 @@ import (
 // preferred client for a local subscription bridge because the bridge converts
 // chat messages into the upstream Responses format and preserves streaming.
 type ChatClient struct {
-	URL        string
-	APIKey     string
-	HTTPClient *http.Client
-	MaxRetries int
-	UserAgent  string
-	Sleep      func(context.Context, time.Duration) error
+	URL           string
+	APIKey        string
+	HTTPClient    *http.Client
+	MaxRetries    int
+	MaxRetryDelay time.Duration
+	UserAgent     string
+	Sleep         func(context.Context, time.Duration) error
 }
 
 type chatRequest struct {
@@ -106,6 +107,9 @@ func (c *ChatClient) Complete(ctx context.Context, request Request) (Response, e
 		}
 		last = err
 		if !retry || attempt == max(0, c.MaxRetries) {
+			break
+		}
+		if c.MaxRetryDelay > 0 && retryAfter > c.MaxRetryDelay {
 			break
 		}
 		if retryAfter <= 0 {

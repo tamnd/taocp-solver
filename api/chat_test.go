@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestChatClientStream(t *testing.T) {
@@ -34,5 +36,28 @@ func TestChatClientStream(t *testing.T) {
 	}
 	if response.Usage.CachedInputTokens != 4 || response.Usage.CacheWriteTokens != 2 || response.Usage.ReasoningTokens != 3 || response.Usage.TotalTokens != 17 {
 		t.Fatalf("usage = %+v", response.Usage)
+	}
+}
+
+func TestChatClientRetriesShortStreamFailureUnderDelayLimit(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprintln(w, `data: {"error":{"message":"stream failed"}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintln(w, `{"choices":[{"message":{"content":"recovered"}}]}`)
+	}))
+	defer server.Close()
+	client := &ChatClient{
+		URL: server.URL, HTTPClient: server.Client(), MaxRetries: 1, MaxRetryDelay: time.Minute,
+		Sleep: func(context.Context, time.Duration) error { return nil },
+	}
+	response, err := client.Complete(context.Background(), Request{Model: "test", Input: "x"})
+	if err != nil || response.Text != "recovered" || calls.Load() != 2 {
+		t.Fatalf("response = %+v, err = %v, calls = %d", response, err, calls.Load())
 	}
 }
