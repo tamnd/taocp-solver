@@ -27,6 +27,7 @@ import (
 	"github.com/tamnd/taocp-solver/matrix"
 	"github.com/tamnd/taocp-solver/prompt"
 	"github.com/tamnd/taocp-solver/result"
+	"github.com/tamnd/taocp-solver/route"
 	"github.com/tamnd/taocp-solver/solver"
 )
 
@@ -69,6 +70,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runMatrix(ctx, args[1:], stdout, stderr)
 	case "bridge":
 		return runBridge(ctx, args[1:], stdout, stderr)
+	case "doctor":
+		return runDoctor(ctx, args[1:], stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q; run taocp help", args[0])
 	}
@@ -212,10 +215,21 @@ func mapKeys(values map[string]bool) []string {
 type commonFlags struct {
 	config      config.Config
 	timeoutText string
+	routesFile  string
+	routeNames  []string
+}
+
+// routing reports whether the caller asked for the route registry. A bare
+// --base-url keeps its old single-endpoint behaviour, because breaking every
+// existing command line to gain failover would be a poor trade.
+func (c *commonFlags) routing() bool {
+	return strings.TrimSpace(c.routesFile) != "" || len(c.routeNames) > 0
 }
 
 func bindCommon(fs *pflag.FlagSet, defaults config.Config) *commonFlags {
 	c := &commonFlags{config: defaults, timeoutText: defaults.Timeout.String()}
+	fs.StringVar(&c.routesFile, "routes", "", "route file to run against; enables failover across routes")
+	fs.StringSliceVar(&c.routeNames, "route", nil, "restrict the run to these routes, tried in the order given")
 	fs.StringVar(&c.config.BaseURL, "base-url", defaults.BaseURL, "bridge or proxy base URL")
 	fs.StringVar(&c.config.APIKey, "api-key", defaults.APIKey, "API key, if required by the endpoint")
 	fs.StringVar(&c.config.Model, "model", defaults.Model, "model name")
@@ -233,7 +247,40 @@ func (c *commonFlags) finish(requireAPI bool) error {
 	}
 	c.config.Timeout = timeout
 	c.config.Normalize()
-	return c.config.Validate(requireAPI)
+	// With routing on there is nothing for --base-url to point at yet, so the
+	// endpoint requirement moves to the route file.
+	return c.config.Validate(requireAPI && !c.routing())
+}
+
+// pool builds the route pool for a run, or nil when the caller is using a
+// single endpoint.
+func (c *commonFlags) pool(stderr io.Writer) (*route.Pool, error) {
+	if !c.routing() {
+		return nil, nil
+	}
+	registry, source, err := route.LoadOrDefault(c.routesFile)
+	if err != nil {
+		return nil, err
+	}
+	if len(c.routeNames) > 0 {
+		registry, err = registry.Select(c.routeNames)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Each route names its own model, so --model does not reach the wire here.
+	// Labelling the run with the first route's model keeps the progress lines
+	// from announcing a model that nothing was ever asked for.
+	if enabled := registry.Enabled(); len(enabled) > 0 {
+		c.config.Model = enabled[0].Model
+	}
+	_, _ = fmt.Fprintf(stderr, "routing across %s from %s\n", strings.Join(registry.Names(), ", "), source)
+	pool := route.NewPool(registry)
+	pool.Timeout = c.config.Timeout
+	pool.MaxRetries = c.config.MaxRetries
+	pool.Prober = route.Prober{Timeout: 60 * time.Second}
+	pool.Logf = func(format string, args ...any) { _, _ = fmt.Fprintf(stderr, format+"\n", args...) }
+	return pool, nil
 }
 
 func runSolve(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -255,7 +302,11 @@ func runSolve(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err := common.finish(true); err != nil {
 		return err
 	}
-	engine := newEngine(common.config, stderr)
+	pool, err := common.pool(stderr)
+	if err != nil {
+		return err
+	}
+	engine := newEngine(common.config, pool, stderr)
 	solveMode, err := parseMode(*mode)
 	if err != nil {
 		return err
@@ -303,7 +354,11 @@ func runBatch(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	if err != nil {
 		return err
 	}
-	engine := newEngine(common.config, stderr)
+	pool, err := common.pool(stderr)
+	if err != nil {
+		return err
+	}
+	engine := newEngine(common.config, pool, stderr)
 	type task struct {
 		section string
 		number  int
@@ -445,7 +500,11 @@ func runReview(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if strings.TrimSpace(string(data)) == "" {
 		return errors.New("solution is empty")
 	}
-	engine := newEngine(common.config, stderr)
+	pool, err := common.pool(stderr)
+	if err != nil {
+		return err
+	}
+	engine := newEngine(common.config, pool, stderr)
 	review, verdict, err := engine.Review(ctx, section, number, string(data), common.config.Model)
 	if err != nil {
 		return err
@@ -475,7 +534,11 @@ func runBenchmark(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	if err := common.finish(true); err != nil {
 		return err
 	}
-	engine := newEngine(common.config, stderr)
+	pool, err := common.pool(stderr)
+	if err != nil {
+		return err
+	}
+	engine := newEngine(common.config, pool, stderr)
 	runner := benchmark.Runner{
 		Repository: engine.Repository, Client: engine.Client,
 		OutputRoot: filepath.Join(common.config.OutputRoot, "benchmarks", fmt.Sprintf("%s-%d", section, number)),
@@ -528,15 +591,19 @@ func runBenchmark(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	return printMetrics(stdout, report.EvaluationMetrics.CurrentRun)
 }
 
-func newEngine(cfg config.Config, stderr io.Writer) *solver.Engine {
+func newEngine(cfg config.Config, pool *route.Pool, stderr io.Writer) *solver.Engine {
 	var progressMu sync.Mutex
+	var client api.Completer = &api.ChatClient{
+		URL: cfg.ChatCompletionsURL(), APIKey: cfg.APIKey, MaxRetries: cfg.MaxRetries,
+		HTTPClient: &http.Client{Timeout: cfg.Timeout}, UserAgent: "taocp-solver/" + version,
+	}
+	if pool != nil {
+		client = route.NewCompleter(pool)
+	}
 	return &solver.Engine{
 		Repository: exercise.NewRepository(cfg.TAOCPRoot),
-		Client: &api.ChatClient{
-			URL: cfg.ChatCompletionsURL(), APIKey: cfg.APIKey, MaxRetries: cfg.MaxRetries,
-			HTTPClient: &http.Client{Timeout: cfg.Timeout}, UserAgent: "taocp-solver/" + version,
-		},
-		Store: result.Store{Root: cfg.OutputRoot},
+		Client:     client,
+		Store:      result.Store{Root: cfg.OutputRoot},
 		Progress: func(message string) {
 			progressMu.Lock()
 			defer progressMu.Unlock()
@@ -649,6 +716,100 @@ func runBridge(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	})
 }
 
+// runDoctor probes every route and reports what it found. It exits non-zero
+// when nothing is live, which is what makes it usable as a cron guard and as a
+// systemd ExecStartPre.
+func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := pflag.NewFlagSet("doctor", pflag.ContinueOnError)
+	fs.SetOutput(stderr)
+	routesFile := fs.String("routes", "", "route file to probe; defaults to the personal file, then the built-ins")
+	routeNames := fs.StringSlice("route", nil, "probe only these routes")
+	jsonOutput := fs.Bool("json", false, "write the probe results as JSON")
+	writeRoutes := fs.String("write-routes", "", "write the effective route file and exit without probing")
+	suggestRoutes := fs.String("suggest-routes", "", "probe, then write a route file refreshed from the live catalogues")
+	timeoutText := fs.String("timeout", "60s", "timeout per probe")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) != 0 {
+		return errors.New("doctor takes no positional arguments")
+	}
+	timeout, err := config.ParseDuration(*timeoutText)
+	if err != nil {
+		return err
+	}
+	registry, source, err := route.LoadOrDefault(*routesFile)
+	if err != nil {
+		return err
+	}
+	if len(*routeNames) > 0 {
+		registry, err = registry.Select(*routeNames)
+		if err != nil {
+			return err
+		}
+	}
+	if *writeRoutes != "" {
+		if err := registry.Write(*writeRoutes); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "wrote %d routes from %s to %s\n", len(registry.Routes), source, *writeRoutes)
+		return err
+	}
+
+	// Disabled routes are probed too. A route is disabled because of something
+	// that was true once, and doctor is how you find out it has changed.
+	pool := route.NewPool(route.Registry{Routes: allRoutes(registry)})
+	pool.Prober = route.Prober{Timeout: timeout}
+	results := pool.ProbeAll(ctx)
+
+	if *suggestRoutes != "" {
+		catalogues := map[string][]string{}
+		for _, health := range results {
+			if len(health.Catalogue) > 0 {
+				catalogues[health.Route] = health.Catalogue
+			}
+		}
+		suggested := route.Suggest(registry, catalogues)
+		if err := suggested.Write(*suggestRoutes); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(stdout, "wrote %d routes to %s\n", len(suggested.Routes), *suggestRoutes)
+	}
+
+	if *jsonOutput {
+		if err := writeJSON(stdout, map[string]any{
+			"source":          source,
+			"routes":          results,
+			"catalogue_drift": route.Drift(results),
+		}); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprint(stdout, route.Table(results)); err != nil {
+			return err
+		}
+		for _, line := range route.Drift(results) {
+			_, _ = fmt.Fprintln(stdout, line)
+		}
+	}
+	for _, health := range results {
+		if health.State == route.StateLive {
+			return nil
+		}
+	}
+	return fmt.Errorf("no route is live; %d probed from %s", len(results), source)
+}
+
+// allRoutes includes disabled routes, which Enabled deliberately drops.
+func allRoutes(registry route.Registry) []route.Route {
+	out := make([]route.Route, 0, len(registry.Routes))
+	for _, value := range registry.Routes {
+		value.Disabled = false
+		out = append(out, value)
+	}
+	return out
+}
+
 func orUnknown(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return "unknown"
@@ -668,6 +829,7 @@ Usage:
   taocp benchmark SECTION NUMBER [flags]
   taocp matrix [flags]
   taocp bridge [flags]
+  taocp doctor [flags]
   taocp version
 
 Run a command with -h to see its flags.
