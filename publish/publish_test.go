@@ -315,6 +315,61 @@ func TestAMissingBrainDirectoryIsAnError(t *testing.T) {
 	}
 }
 
+// An exercise body links its figures the way the source repository is laid out.
+// Those paths resolve to nothing once the page is published in another tree, so
+// the figure has to travel with it.
+func TestFiguresTravelWithTheSolution(t *testing.T) {
+	t.Parallel()
+	publisher := scratch(t, 1)
+	image := filepath.Join(publisher.Source, "md", "vol1", "images", "page_0041.png")
+	if err := os.MkdirAll(filepath.Dir(image), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(image, []byte("not really a png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := filepath.Join(publisher.Source, "content", "vol1", "exercises", "1.1", "01.md")
+	page := read(t, body) + "\n![Figure 5](../../../../md/vol1/images/page_0041.png)\n" +
+		"![Remote](https://example.com/x.png)\n![Missing](../../../../md/vol1/images/absent.png)\n"
+	if err := os.WriteFile(body, []byte(page), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store(t, publisher, 1, "A solution.", true)
+
+	report, err := publisher.Run(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Images != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	published := read(t, filepath.Join(publisher.ContentDir(), "vol1", "1.1", "01.md"))
+	if !strings.Contains(published, "![Figure 5](page_0041.png)") {
+		t.Errorf("the figure link was not localised:\n%s", published)
+	}
+	// A remote image needs no copy, and one the source cannot resolve is already
+	// broken, so rewriting it would only hide that.
+	if !strings.Contains(published, "![Remote](https://example.com/x.png)") {
+		t.Error("a remote image must be left alone")
+	}
+	if !strings.Contains(published, "![Missing](../../../../md/vol1/images/absent.png)") {
+		t.Error("an unresolvable link must be left alone")
+	}
+	if got := read(t, filepath.Join(publisher.ContentDir(), "vol1", "1.1", "page_0041.png")); got != "not really a png" {
+		t.Errorf("copied image = %q", got)
+	}
+
+	// The second run has the same figure to place and must not copy it again, or
+	// every run would show up as a change in the content repository.
+	second, err := publisher.Run(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Images != 0 || second.Unchanged != 1 {
+		t.Fatalf("second report = %+v", second)
+	}
+}
+
 func read(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)

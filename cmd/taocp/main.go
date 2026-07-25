@@ -784,6 +784,12 @@ func runPublish(args []string, stdout, stderr io.Writer) error {
 		report.Solved, report.Verified, report.Total); err != nil {
 		return err
 	}
+	// Most pages carry no figure, so this line only appears when one travelled.
+	if report.Images > 0 {
+		if _, err := fmt.Fprintf(stdout, "figures: %d copied from the source repository\n", report.Images); err != nil {
+			return err
+		}
+	}
 	if *verbose {
 		for _, path := range report.Changes {
 			if _, err := fmt.Fprintln(stdout, " ", path); err != nil {

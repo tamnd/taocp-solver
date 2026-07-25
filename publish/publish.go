@@ -1,6 +1,7 @@
 package publish
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -29,6 +30,7 @@ const Zone = "Asia/Ho_Chi_Minh"
 var (
 	solutionFile = regexp.MustCompile(`^(\d+)\.md$`)
 	dateLine     = regexp.MustCompile(`(?m)^date:\s*".*?"\s*$`)
+	imageLink    = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)\)`)
 	// volumes is fixed rather than discovered, so the top index lists a volume
 	// with no solutions yet instead of quietly dropping it.
 	volumes = []int{1, 2, 3, 4}
@@ -55,6 +57,9 @@ type Report struct {
 	Solved    int
 	Verified  int
 	Total     int
+	// Images counts figures copied out of the source repository, which happens
+	// only when a page that references one is written.
+	Images int
 	// Changes lists the paths a check run would have touched, so --check can say
 	// which files rather than only how many.
 	Changes []string
@@ -102,10 +107,12 @@ func (p Publisher) Run(targets []Target, check bool) (Report, error) {
 	for _, value := range results {
 		section := value.Exercise.SectionID
 		path := p.solutionPath(section, value.Exercise.Number)
-		changed, deleted, err := p.write(value, path, now().In(zone), check)
+		changed, deleted, images, err := p.write(value, path, now().In(zone), check)
 		if err != nil {
 			return report, err
 		}
+		report.Images += len(images)
+		report.Changes = append(report.Changes, images...)
 		switch {
 		case deleted:
 			report.Deleted++
@@ -269,22 +276,22 @@ func (p Publisher) storeNumbers(section string) ([]int, error) {
 // write publishes one solution. It reports whether the file changed and whether
 // it was removed by the leak gate, which are different enough that a caller has
 // to be able to tell them apart.
-func (p Publisher) write(value result.Result, path string, date time.Time, check bool) (changed, deleted bool, err error) {
+func (p Publisher) write(value result.Result, path string, date time.Time, check bool) (changed, deleted bool, images []string, err error) {
 	// The last gate before the repository. An error page, a refusal or a model
 	// identity disclosure must never be published, and one that slipped through
 	// before the guards existed is removed on the way past.
 	body, guardErr := textguard.CleanSolution(value.Solution)
 	if guardErr != nil {
 		if !exists(path) {
-			return false, false, nil
+			return false, false, nil, nil
 		}
 		if check {
-			return false, true, nil
+			return false, true, nil, nil
 		}
 		if err := os.Remove(path); err != nil {
-			return false, false, fmt.Errorf("remove leaked solution %s: %w", path, err)
+			return false, false, nil, fmt.Errorf("remove leaked solution %s: %w", path, err)
 		}
-		return false, true, nil
+		return false, true, nil, nil
 	}
 
 	page := RenderSolution(Solution{
@@ -294,23 +301,86 @@ func (p Publisher) write(value result.Result, path string, date time.Time, check
 		SolveTime: value.SolveTime,
 		Date:      date,
 	})
+	// Figures have to be localised before the comparison, or an unchanged page
+	// would compare against bytes that still hold the source repository's paths.
+	page, images, imageErr := p.localizeImages(page, value.Exercise, check)
+	if imageErr != nil {
+		return false, false, nil, imageErr
+	}
 	stored, readErr := os.ReadFile(path)
 	// The date is stamped at render time, so two renders of an unchanged solution
 	// differ on exactly that line. Blanking it on both sides is what keeps an
 	// unchanged page's original date and mtime, and keeps git quiet.
 	if readErr == nil && blankDate(string(stored)) == blankDate(page) {
-		return false, false, nil
+		return false, false, images, nil
 	}
 	if check {
-		return true, false, nil
+		return true, false, images, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, false, fmt.Errorf("create section directory: %w", err)
+		return false, false, nil, fmt.Errorf("create section directory: %w", err)
 	}
 	if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
-		return false, false, fmt.Errorf("write solution %s: %w", path, err)
+		return false, false, nil, fmt.Errorf("write solution %s: %w", path, err)
 	}
-	return true, false, nil
+	return true, false, images, nil
+}
+
+// localizeImages copies the figures a page references out of the source
+// repository and rewrites the links to bare filenames.
+//
+// An exercise body carries paths like ../../../../md/vol1/images/fig.png, which
+// resolve inside the source repository and point at nothing once the page is
+// published four directories deeper in a different tree. The already published
+// pages that carry figures keep them next to the page under a plain name, so
+// that is what this reproduces.
+func (p Publisher) localizeImages(page string, target exercise.Exercise, check bool) (string, []string, error) {
+	if !strings.Contains(page, "![") {
+		return page, nil, nil
+	}
+	source := exercise.NewRepository(p.Source).Dir(target.SectionID)
+	dir := p.sectionDir(target.SectionID)
+	var copied []string
+	var failure error
+	page = imageLink.ReplaceAllStringFunc(page, func(match string) string {
+		parts := imageLink.FindStringSubmatch(match)
+		alt, link := parts[1], parts[2]
+		// A remote image needs no copy, and one that is already a bare filename has
+		// been localised by an earlier run.
+		if strings.Contains(link, "://") || strings.HasPrefix(link, "data:") || !strings.Contains(link, "/") {
+			return match
+		}
+		from := filepath.Join(source, filepath.FromSlash(link))
+		// A link the source repository cannot resolve is left exactly as it is. It is
+		// already broken, and inventing a target would hide that.
+		if !regularFile(from) {
+			return match
+		}
+		name := filepath.Base(from)
+		to := filepath.Join(dir, name)
+		// Two exercises in a section may name different figures the same thing, so a
+		// genuine clash is disambiguated by the exercise it belongs to.
+		if same, err := sameFile(from, to); err != nil {
+			failure = err
+			return match
+		} else if !same && exists(to) {
+			name = fmt.Sprintf("%02d_%s", target.Number, name)
+			to = filepath.Join(dir, name)
+		}
+		wrote, err := copyIfChanged(from, to, check)
+		if err != nil {
+			failure = err
+			return match
+		}
+		if wrote {
+			copied = append(copied, to)
+		}
+		return fmt.Sprintf("![%s](%s)", alt, name)
+	})
+	if failure != nil {
+		return "", nil, failure
+	}
+	return page, copied, nil
 }
 
 // renderSectionIndex builds a section page from the source repo's exercise list
@@ -599,6 +669,50 @@ func writeIfChanged(path, page string, check bool) (bool, error) {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func regularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// sameFile reports whether the destination already holds these bytes. Figures
+// are a few kilobytes, so comparing them is cheaper than the mtime churn and git
+// noise of copying one that has not changed.
+func sameFile(from, to string) (bool, error) {
+	stored, err := os.ReadFile(to)
+	if err != nil {
+		return false, nil
+	}
+	wanted, err := os.ReadFile(from)
+	if err != nil {
+		return false, fmt.Errorf("read image %s: %w", from, err)
+	}
+	return bytes.Equal(stored, wanted), nil
+}
+
+func copyIfChanged(from, to string, check bool) (bool, error) {
+	same, err := sameFile(from, to)
+	if err != nil {
+		return false, err
+	}
+	if same {
+		return false, nil
+	}
+	if check {
+		return true, nil
+	}
+	data, err := os.ReadFile(from)
+	if err != nil {
+		return false, fmt.Errorf("read image %s: %w", from, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return false, fmt.Errorf("create directory for %s: %w", to, err)
+	}
+	if err := os.WriteFile(to, data, 0o644); err != nil {
+		return false, fmt.Errorf("write image %s: %w", to, err)
+	}
+	return true, nil
 }
 
 func sortedKeys(values map[int]*frontmatter) []int {

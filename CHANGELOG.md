@@ -18,6 +18,7 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - `--check` reports what would change, writes nothing, and exits non-zero when the tree is out of date, which makes it usable as a pre-commit hook or a scheduled guard.
 - Published dates carry a real `Asia/Ho_Chi_Minh` clock. The previous publisher stamped a UTC time and labelled it `+07:00`, so every date was seven hours early against its own offset.
 - A section index falls back to the pages already published when the source repository has nothing to list for it, instead of rendering a table with a header and no rows.
+- Figures travel with the page that references them. Exercise bodies link images the way the source repository is laid out, which resolves to nothing in the published tree, so the file is copied next to the page and the link becomes a bare filename. A remote image and a link the source cannot resolve are both left alone.
 - `TAOCP_SOLVER_BRAIN` names the content repository, defaulting to `~/github/tamnd/brain`.
 
 ### Changed

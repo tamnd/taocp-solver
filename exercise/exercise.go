@@ -109,8 +109,14 @@ func (r *Repository) Load(sectionID string, number int) (Exercise, Context, erro
 	return ex, Context{Section: section, Preceding: preceding}, nil
 }
 
+// Dir is where a section's exercise files live. Callers need it to resolve the
+// repository-relative links inside an exercise body, such as figure images.
+func (r *Repository) Dir(sectionID string) string {
+	return filepath.Join(r.Root, "content", VolumeDir(sectionID), "exercises", sectionID)
+}
+
 func (r *Repository) List(sectionID string) ([]int, error) {
-	dir := filepath.Join(r.Root, "content", VolumeDir(sectionID), "exercises", sectionID)
+	dir := r.Dir(sectionID)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("list exercises in %s: %w", dir, err)
@@ -225,7 +231,7 @@ func CompareSections(a, b string) int {
 }
 
 func (r *Repository) exercisePath(sectionID string, number int) (string, error) {
-	dir := filepath.Join(r.Root, "content", VolumeDir(sectionID), "exercises", sectionID)
+	dir := r.Dir(sectionID)
 	plain := filepath.Join(dir, fmt.Sprintf("%02d.md", number))
 	if regularFile(plain) {
 		return plain, nil

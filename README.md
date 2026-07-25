@@ -189,6 +189,10 @@ Two runs over an unchanged store leave `git status` empty in the content reposit
 
 Dates are stamped in `Asia/Ho_Chi_Minh`.
 
+A figure travels with the page that references it.
+Exercise bodies link images the way the source repository is laid out, which resolves to nothing four directories deeper in another tree, so the file is copied next to the published page and the link becomes a bare filename.
+A remote image is left alone, and so is a link the source repository cannot resolve, because inventing a target for it would only hide that it is broken.
+
 Every solution passes the leak gate before it is written.
 A stored solution that trips the gate is not published, and a page that is already live and now trips it is deleted and counted separately, so the gate can be tightened without leaving old pages behind.
 
