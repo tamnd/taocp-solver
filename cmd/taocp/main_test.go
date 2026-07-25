@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
+
+	"github.com/tamnd/taocp-solver/config"
 	"github.com/tamnd/taocp-solver/pricing"
 	"github.com/tamnd/taocp-solver/result"
 	"github.com/tamnd/taocp-solver/route"
@@ -175,6 +179,56 @@ func TestDoctorRejectsAnUnknownRoute(t *testing.T) {
 	err := run(context.Background(), []string{"doctor", "--routes", path, "--route", "nope"}, &output, &errors)
 	if err == nil || !strings.Contains(err.Error(), "unknown route") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// An explicit --base-url alongside a route file is an instruction to try that
+// endpoint first, not something to ignore.
+func TestExplicitBaseURLBecomesTheFirstRoute(t *testing.T) {
+	t.Parallel()
+	path := writeRouteFile(t, route.Route{
+		Name: "configured", Wire: route.WireChat, Rank: 10, Model: "m", BaseURL: "http://127.0.0.1:1/v1",
+	})
+	fs := pflag.NewFlagSet("solve", pflag.ContinueOnError)
+	common := bindCommon(fs, config.FromEnv())
+	if err := fs.Parse([]string{"--routes", path, "--base-url", "http://127.0.0.1:2/v1", "--api-key", "sk-local"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := common.finish(false); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := common.pool(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pool.Names(); len(got) != 2 || got[0] != "ad-hoc" {
+		t.Fatalf("routes = %v, want the ad hoc route first", got)
+	}
+}
+
+// The same value out of the environment is not an instruction, so it does not
+// jump the queue.
+func TestEnvironmentBaseURLDoesNotBecomeARoute(t *testing.T) {
+	t.Parallel()
+	path := writeRouteFile(t, route.Route{
+		Name: "configured", Wire: route.WireChat, Rank: 10, Model: "m", BaseURL: "http://127.0.0.1:1/v1",
+	})
+	defaults := config.FromEnv()
+	defaults.BaseURL = "http://127.0.0.1:2/v1"
+	fs := pflag.NewFlagSet("solve", pflag.ContinueOnError)
+	common := bindCommon(fs, defaults)
+	if err := fs.Parse([]string{"--routes", path}); err != nil {
+		t.Fatal(err)
+	}
+	if err := common.finish(false); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := common.pool(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pool.Names(); len(got) != 1 || got[0] != "configured" {
+		t.Fatalf("routes = %v", got)
 	}
 }
 

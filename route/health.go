@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -307,10 +306,8 @@ func (p Prober) catalogue(ctx context.Context, value Route) ([]string, Signal) {
 	if err != nil {
 		return nil, Signal{State: StateBroken, Detail: err.Error()}
 	}
-	if value.APIKeyEnv != "" {
-		if key := strings.TrimSpace(os.Getenv(value.APIKeyEnv)); key != "" {
-			request.Header.Set("Authorization", "Bearer "+key)
-		}
+	if key := value.Key(); key != "" {
+		request.Header.Set("Authorization", "Bearer "+key)
 	}
 	response, err := p.httpClient().Do(request)
 	if err != nil {
