@@ -1,0 +1,292 @@
+{
+  "number": 1,
+  "sections": [
+    {
+      "id": "1.1",
+      "title": "Algorithms",
+      "solved": 9,
+      "verified": 7,
+      "total": 9
+    },
+    {
+      "id": "1.2.1",
+      "title": "Mathematical Induction",
+      "solved": 15,
+      "verified": 14,
+      "total": 15
+    },
+    {
+      "id": "1.2.2",
+      "title": "Numbers, Powers, and Logarithms",
+      "solved": 30,
+      "verified": 27,
+      "total": 30
+    },
+    {
+      "id": "1.2.3",
+      "title": "Sums and Products",
+      "solved": 46,
+      "verified": 44,
+      "total": 46
+    },
+    {
+      "id": "1.2.4",
+      "title": "Integer Functions and Elementary Number Theory",
+      "solved": 46,
+      "verified": 41,
+      "total": 46
+    },
+    {
+      "id": "1.2.5",
+      "title": "Permutations and Factorials",
+      "solved": 18,
+      "verified": 1,
+      "total": 18
+    },
+    {
+      "id": "1.2.6",
+      "title": "Binomial Coefficients",
+      "solved": 68,
+      "verified": 52,
+      "total": 68
+    },
+    {
+      "id": "1.2.7",
+      "title": "Harmonic Numbers",
+      "solved": 25,
+      "verified": 19,
+      "total": 25
+    },
+    {
+      "id": "1.2.8",
+      "title": "Fibonacci Numbers",
+      "solved": 42,
+      "verified": 35,
+      "total": 42
+    },
+    {
+      "id": "1.2.9",
+      "title": "Generating Functions",
+      "solved": 26,
+      "verified": 22,
+      "total": 26
+    },
+    {
+      "id": "1.2.10",
+      "title": "Analysis of an Algorithm",
+      "solved": 22,
+      "verified": 21,
+      "total": 22
+    },
+    {
+      "id": "1.2.11.2",
+      "title": "Euler's Summation Formula",
+      "solved": 13,
+      "verified": 10,
+      "total": 13
+    },
+    {
+      "id": "1.2.11.3",
+      "title": "Some Asymptotic Calculations",
+      "solved": 14,
+      "verified": 12,
+      "total": 14
+    },
+    {
+      "id": "1.3.1",
+      "title": "Description of MIX",
+      "solved": 26,
+      "verified": 14,
+      "total": 26
+    },
+    {
+      "id": "1.3.2",
+      "title": "The MIX Assembly Language",
+      "solved": 9,
+      "verified": 4,
+      "total": 9
+    },
+    {
+      "id": "1.3.3",
+      "title": "Applications to Permutations",
+      "solved": 37,
+      "verified": 6,
+      "total": 37
+    },
+    {
+      "id": "1.4.1",
+      "title": "Subroutines",
+      "solved": 7,
+      "verified": 4,
+      "total": 7
+    },
+    {
+      "id": "1.4.2",
+      "title": "Coroutines",
+      "solved": 7,
+      "verified": 4,
+      "total": 7
+    },
+    {
+      "id": "1.4.3.1",
+      "title": "A MIX Simulator",
+      "solved": 8,
+      "verified": 1,
+      "total": 8
+    },
+    {
+      "id": "1.4.3.2",
+      "title": "Trace Routines",
+      "solved": 7,
+      "verified": 5,
+      "total": 7
+    },
+    {
+      "id": "1.4.4",
+      "title": "Input and Output",
+      "solved": 19,
+      "verified": 1,
+      "total": 19
+    },
+    {
+      "id": "2.1",
+      "title": "Introduction",
+      "solved": 9,
+      "verified": 7,
+      "total": 9
+    },
+    {
+      "id": "2.2.1",
+      "title": "Stacks, Queues, and Deques",
+      "solved": 14,
+      "verified": 11,
+      "total": 14
+    },
+    {
+      "id": "2.2.2",
+      "title": "Sequential Allocation",
+      "solved": 19,
+      "verified": 9,
+      "total": 19
+    },
+    {
+      "id": "2.2.3",
+      "title": "Linked Allocation",
+      "solved": 28,
+      "verified": 19,
+      "total": 28
+    },
+    {
+      "id": "2.2.4",
+      "title": "Circular Lists",
+      "solved": 18,
+      "verified": 9,
+      "total": 18
+    },
+    {
+      "id": "2.2.5",
+      "title": "Doubly Linked Lists",
+      "solved": 12,
+      "verified": 2,
+      "total": 12
+    },
+    {
+      "id": "2.2.6",
+      "title": "Arrays and Orthogonal Lists",
+      "solved": 24,
+      "verified": 4,
+      "total": 24
+    },
+    {
+      "id": "2.3",
+      "title": "Trees",
+      "solved": 22,
+      "verified": 3,
+      "total": 22
+    },
+    {
+      "id": "2.3.1",
+      "title": "Traversing Binary Trees",
+      "solved": 37,
+      "verified": 5,
+      "total": 37
+    },
+    {
+      "id": "2.3.2",
+      "title": "Binary Tree Representation of Trees",
+      "solved": 22,
+      "verified": 19,
+      "total": 22
+    },
+    {
+      "id": "2.3.3",
+      "title": "Other Representations of Trees",
+      "solved": 19,
+      "verified": 15,
+      "total": 19
+    },
+    {
+      "id": "2.3.4.1",
+      "title": "Free Trees",
+      "solved": 13,
+      "verified": 1,
+      "total": 13
+    },
+    {
+      "id": "2.3.4.2",
+      "title": "Oriented Trees",
+      "solved": 28,
+      "verified": 8,
+      "total": 28
+    },
+    {
+      "id": "2.3.4.3",
+      "title": "",
+      "solved": 8,
+      "verified": 0,
+      "total": 8
+    },
+    {
+      "id": "2.3.4.4",
+      "title": "Enumeration of Trees",
+      "solved": 30,
+      "verified": 11,
+      "total": 30
+    },
+    {
+      "id": "2.3.4.5",
+      "title": "Path Length",
+      "solved": 17,
+      "verified": 4,
+      "total": 17
+    },
+    {
+      "id": "2.3.4.6",
+      "title": "History and Bibliography",
+      "solved": 4,
+      "verified": 0,
+      "total": 4
+    },
+    {
+      "id": "2.3.5",
+      "title": "Lists and Garbage Collection",
+      "solved": 12,
+      "verified": 2,
+      "total": 12
+    },
+    {
+      "id": "2.4",
+      "title": "Multilinked Structures",
+      "solved": 15,
+      "verified": 0,
+      "total": 15
+    },
+    {
+      "id": "2.5",
+      "title": "Dynamic Storage Allocation",
+      "solved": 44,
+      "verified": 11,
+      "total": 44
+    }
+  ]
+}

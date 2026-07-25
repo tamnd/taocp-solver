@@ -1,0 +1,154 @@
+{
+  "id": "6.5",
+  "title": "Retrieval on Secondary Keys",
+  "chapter": 6,
+  "chapter_title": "Searching",
+  "volume": 3,
+  "total": 16,
+  "entries": [
+    {
+      "number": 2,
+      "rating": "M25",
+      "category": "math-medium",
+      "recommended": false,
+      "published": true,
+      "verified": false,
+      "solve_time_s": 325
+    },
+    {
+      "number": 3,
+      "rating": "19",
+      "category": "medium",
+      "recommended": false,
+      "published": true,
+      "verified": false,
+      "solve_time_s": 210
+    },
+    {
+      "number": 4,
+      "rating": "M30",
+      "category": "math-hard",
+      "recommended": false,
+      "published": true,
+      "verified": true,
+      "solve_time_s": 226
+    },
+    {
+      "number": 5,
+      "rating": "40",
+      "category": "project",
+      "recommended": false,
+      "published": true,
+      "verified": true,
+      "solve_time_s": 55
+    },
+    {
+      "number": 7,
+      "rating": "M24",
+      "category": "math-medium",
+      "recommended": false,
+      "published": true,
+      "verified": false,
+      "solve_time_s": 239
+    },
+    {
+      "number": 8,
+      "rating": "M32",
+      "category": "math-hard",
+      "recommended": false,
+      "published": true,
+      "verified": false,
+      "solve_time_s": 266
+    },
+    {
+      "number": 9,
+      "rating": "M20",
+      "category": "math-medium",
+      "recommended": false,
+      "published": true,
+      "verified": true,
+      "solve_time_s": 84
+    },
+    {
+      "number": 10,
+      "rating": "M32",
+      "category": "math-hard",
+      "recommended": false,
+      "published": true,
+      "verified": false,
+      "solve_time_s": 69
+    },
+    {
+      "number": 11,
+      "rating": "M25",
+      "category": "math-medium",
+      "recommended": false,
+      "published": true,
+      "verified": true,
+      "solve_time_s": 68
+    },
+    {
+      "number": 12,
+      "rating": "M28",
+      "category": "math-hard",
+      "recommended": false,
+      "published": true,
+      "verified": false,
+      "solve_time_s": 296
+    },
+    {
+      "number": 13,
+      "rating": "M25",
+      "category": "math-medium",
+      "recommended": false,
+      "published": true,
+      "verified": true,
+      "solve_time_s": 145
+    },
+    {
+      "number": 14,
+      "rating": "28",
+      "category": "hard",
+      "recommended": false,
+      "published": true,
+      "verified": false,
+      "solve_time_s": 215
+    },
+    {
+      "number": 15,
+      "rating": "HM30",
+      "category": "hm-hard",
+      "recommended": false,
+      "published": true,
+      "verified": false,
+      "solve_time_s": 276
+    },
+    {
+      "number": 16,
+      "rating": "25",
+      "category": "medium",
+      "recommended": false,
+      "published": true,
+      "verified": true,
+      "solve_time_s": 151
+    },
+    {
+      "number": 19,
+      "rating": "M22",
+      "category": "math-medium",
+      "recommended": false,
+      "published": true,
+      "verified": true,
+      "solve_time_s": 234
+    },
+    {
+      "number": 20,
+      "rating": "M47",
+      "category": "math-research",
+      "recommended": false,
+      "published": false,
+      "verified": false,
+      "solve_time_s": 0
+    }
+  ]
+}
