@@ -20,6 +20,10 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - A section index falls back to the pages already published when the source repository has nothing to list for it, instead of rendering a table with a header and no rows.
 - Figures travel with the page that references them. Exercise bodies link images the way the source repository is laid out, which resolves to nothing in the published tree, so the file is copied next to the page and the link becomes a bare filename. A remote image and a link the source cannot resolve are both left alone.
 - `TAOCP_SOLVER_BRAIN` names the content repository, defaulting to `~/github/tamnd/brain`.
+- `taocp coverage` reports which exercises are still missing and where, over the source repository, the result store, and the published tree. It needs no database and keeps no state, because all three inputs are directories and every run recomputes the answer.
+- Coverage counts published-but-unstored exercises as `imported` rather than missing. On a fresh install the store is empty while thousands of pages are published, and queueing those would spend a model on work that already exists.
+- `--missing` writes the work queue one section and number per line, sorted so consecutive runs give the same order and an interrupted run needs no cursor.
+- `--orphans` lists published exercises the source repository does not enumerate. It reports and never deletes, because where the two disagree it is usually the extraction that is incomplete and the published page is the only record that the exercise exists.
 
 ### Changed
 
@@ -28,6 +32,10 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - The matrix values a free-route execution at the paid token rate for the same underlying model instead of recording it as costing zero. A free promotion is a billing state, not a measure of what the work is worth.
 - Reports carry the rate card and separate uncached-input, cached-input, cache-write, and output components, so an aggregate total can be checked against its parts.
 - A model with no published paid per-token rate reports its cost as unavailable rather than zero.
+
+### Fixed
+
+- The route file test no longer reads whatever personal route file the developer happens to have, so it stops passing or failing by accident of the machine it runs on.
 
 ## [0.1.0] - 2026-07-20
 

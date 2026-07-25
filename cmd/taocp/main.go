@@ -23,6 +23,7 @@ import (
 	"github.com/tamnd/taocp-solver/benchmark"
 	"github.com/tamnd/taocp-solver/codex"
 	"github.com/tamnd/taocp-solver/config"
+	"github.com/tamnd/taocp-solver/coverage"
 	"github.com/tamnd/taocp-solver/exercise"
 	"github.com/tamnd/taocp-solver/matrix"
 	"github.com/tamnd/taocp-solver/prompt"
@@ -73,6 +74,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runBridge(ctx, args[1:], stdout, stderr)
 	case "publish":
 		return runPublish(args[1:], stdout, stderr)
+	case "coverage":
+		return runCoverage(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(ctx, args[1:], stdout, stderr)
 	default:
@@ -805,6 +808,48 @@ func runPublish(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// runCoverage answers which exercises are still missing, and where. The three
+// inputs are directories, so there is nothing to keep in sync and no cursor to
+// corrupt: every run recomputes the answer from what is on disk.
+func runCoverage(args []string, stdout, stderr io.Writer) error {
+	defaults := config.FromEnv()
+	fs := pflag.NewFlagSet("coverage", pflag.ContinueOnError)
+	fs.SetOutput(stderr)
+	source := fs.String("source", defaults.TAOCPRoot, "TAOCP source repository")
+	output := fs.String("output", defaults.OutputRoot, "result store to count solves in")
+	brain := fs.String("brain", defaults.BrainRoot, "brain repository to count published pages in")
+	volume := fs.String("volume", "", "one volume, as 3 or vol4a")
+	section := fs.String("section", "", "one section")
+	asJSON := fs.Bool("json", false, "write the whole report as JSON")
+	missing := fs.Bool("missing", false, "write the work queue, one section and number per line")
+	orphans := fs.Bool("orphans", false, "list published exercises the source repository does not enumerate")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) > 0 {
+		if *section != "" {
+			return errors.New("give either --section or a positional section, not both")
+		}
+		*section = fs.Args()[0]
+	}
+
+	report, err := coverage.New(*source, *output, *brain).Run(coverage.Filter{Volume: *volume, Section: *section})
+	if err != nil {
+		return err
+	}
+	switch {
+	case *asJSON:
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(report)
+	case *missing:
+		return report.WriteMissing(stdout)
+	case *orphans:
+		return report.WriteOrphans(stdout)
+	}
+	return report.Write(stdout, true)
+}
+
 // runDoctor probes every route and reports what it found. It exits non-zero
 // when nothing is live, which is what makes it usable as a cron guard and as a
 // systemd ExecStartPre.
@@ -918,6 +963,7 @@ Usage:
   taocp benchmark SECTION NUMBER [flags]
   taocp matrix [flags]
   taocp publish [SECTION NUMBER] [flags]
+  taocp coverage [SECTION] [flags]
   taocp bridge [flags]
   taocp doctor [flags]
   taocp version
