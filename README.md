@@ -203,9 +203,9 @@ Every model call records input, cached-input, cache-write, output, reasoning, an
 
 Each scope includes a complete provider-reported token breakdown, priced and unpriced request counts, and a standard API list-cost estimate in USD. GPT-5.6 Sol, Terra, Luna, GPT-5.5, GPT-5.4, and GPT-5.4 mini rates come from the [official model documentation](https://developers.openai.com/api/docs/models/compare). The calculator includes the official 1.25x cache-write rate when the endpoint reports cache-write tokens, plus applicable input and output multipliers for requests above 272K input tokens. GPT-5.4 mini does not use that long-context multiplier.
 
-The matrix also records each free route's published list price. OpenCode Zen explicitly lists DeepSeek V4 Flash Free, MiMo-V2.5 Free, North Mini Code Free, and Nemotron 3 Ultra Free at zero for input, cached input, and output. Zen does not publish a cache-write price for them. Hy3 is recorded from Tencent Cloud's upstream price card: free through July 22, 2026, then CNY 1 input, CNY 0.25 cache hit, and CNY 4 output per million tokens. Zen does not publish `hy3-free` in its own pricing table, so the report does not present Tencent's price as a Zen price. Local models remain unpriced because a zero API charge does not measure electricity or hardware depreciation.
+The matrix values Zen executions at paid token rates for the same underlying model. DeepSeek V4 Flash and MiMo-V2.5 use their creators' direct rates. Hy3 and Nemotron 3 Ultra use published paid inference-route rates. Cohere publishes North Mini Code as free for both trial and production keys and publishes no paid per-token rate, so that value remains unavailable. Local models remain unpriced because a zero API charge does not measure electricity or hardware depreciation.
 
-List cost does not claim actual subscription cost, or Batch, Priority, tool-call, negotiated, hardware, or energy cost. An unknown price is reported as unavailable instead of being assigned an invented zero.
+List cost does not claim actual subscription cost, or Batch, Priority, tool-call, negotiated, hardware, or energy cost. Reports include uncached-input, cached-input, cache-write, and output components. An unknown price is reported as unavailable instead of being assigned an invented zero.
 
 ## Development
 

@@ -181,9 +181,15 @@ func runMatrix(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return err
 	}
 	for _, item := range report.Aggregates {
-		if _, err := fmt.Fprintf(stdout, "%s %s: %d/%d publishable, %d/%d true, %d tokens, $%.6f generation\n",
+		cost := "n/a"
+		if item.GenerationListCost.Available &&
+			(item.GenerationMetrics.Tokens.CachedInputTokens == 0 || item.PublishedListPrice.CachedInputPriceAvailable) &&
+			(item.GenerationMetrics.Tokens.CacheWriteTokens == 0 || item.PublishedListPrice.CacheWritePriceAvailable) {
+			cost = fmt.Sprintf("$%.6f", item.GenerationListCost.TotalUSD)
+		}
+		if _, err := fmt.Fprintf(stdout, "%s %s: %d/%d publishable, %d/%d true, %d tokens, %s paid-equivalent generation\n",
 			item.Model, item.Mode, item.Publishable, item.Completed, item.TrueSolutions, item.Completed,
-			item.GenerationMetrics.Tokens.TotalTokens, item.GenerationCostUSD); err != nil {
+			item.GenerationMetrics.Tokens.TotalTokens, cost); err != nil {
 			return err
 		}
 	}

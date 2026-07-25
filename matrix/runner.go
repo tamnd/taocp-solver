@@ -48,6 +48,7 @@ type Case struct {
 	Generation         result.Result     `json:"generation"`
 	IndependentAudit   evaluation.Report `json:"independent_audit"`
 	GenerationCostUSD  float64           `json:"generation_cost_usd"`
+	GenerationListCost pricing.Cost      `json:"generation_list_cost"`
 	PublishedListPrice pricing.ListPrice `json:"published_list_price"`
 	CostNote           string            `json:"cost_note"`
 	RateLimitDeferrals int               `json:"rate_limit_deferrals"`
@@ -71,6 +72,7 @@ type Aggregate struct {
 	GenerationMetrics  result.MetricSet  `json:"generation_metrics"`
 	EvaluationMetrics  result.MetricSet  `json:"evaluation_metrics"`
 	GenerationCostUSD  float64           `json:"generation_cost_usd"`
+	GenerationListCost pricing.Cost      `json:"generation_list_cost"`
 	PublishedListPrice pricing.ListPrice `json:"published_list_price"`
 	EvaluationCostUSD  float64           `json:"evaluation_cost_usd"`
 	Elapsed            time.Duration     `json:"elapsed"`
@@ -289,6 +291,9 @@ func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, referen
 		var cached Case
 		if loadJSON(path, &cached) == nil {
 			if cached.Status == "completed" {
+				cached.GenerationListCost, cached.PublishedListPrice, cached.CostNote = profileCost(item.profile, cached.Generation.Metrics.CurrentRun)
+				cached.GenerationCostUSD = cached.GenerationListCost.TotalUSD
+				_ = saveJSON(path, cached)
 				return cached
 			}
 			for _, message := range cached.ErrorHistory {
@@ -325,7 +330,8 @@ func (r Runner) runCase(ctx context.Context, auditor evaluation.Auditor, referen
 			return value
 		}
 		value.Generation = generation
-		value.GenerationCostUSD, value.PublishedListPrice, value.CostNote = profileCost(item.profile, generation.Metrics.CurrentRun)
+		value.GenerationListCost, value.PublishedListPrice, value.CostNote = profileCost(item.profile, generation.Metrics.CurrentRun)
+		value.GenerationCostUSD = value.GenerationListCost.TotalUSD
 		value.Status = "evaluation_pending"
 		value.Error = ""
 		value.Elapsed = time.Since(started).Round(time.Millisecond)
@@ -384,24 +390,27 @@ func (r Runner) client(profile ModelProfile) api.Completer {
 	return &api.ChatClient{URL: url, APIKey: key, HTTPClient: httpClient, MaxRetries: maxRetries, MaxRetryDelay: maxRetryDelay, MaxOutputTokens: r.MaxOutputTokens, UserAgent: "taocp-matrix"}
 }
 
-func profileCost(profile ModelProfile, metrics result.MetricSet) (float64, pricing.ListPrice, string) {
+func profileCost(profile ModelProfile, metrics result.MetricSet) (pricing.Cost, pricing.ListPrice, string) {
 	card, _ := pricing.PublishedListPrice(profile.Model)
+	usage := api.Usage{
+		InputTokens: metrics.Tokens.InputTokens, CachedInputTokens: metrics.Tokens.CachedInputTokens,
+		CacheWriteTokens: metrics.Tokens.CacheWriteTokens, OutputTokens: metrics.Tokens.OutputTokens,
+		ReasoningTokens: metrics.Tokens.ReasoningTokens, TotalTokens: metrics.Tokens.TotalTokens,
+	}
+	cost := pricing.Calculate(profile.Model, usage)
 	switch profile.CostBasis {
 	case "free":
 		if !card.Available {
-			return 0, card, "The route name indicates free access, but no authoritative published list price was found."
+			return cost, card, "No paid per-token list price is published for this model."
 		}
-		if profile.Model == "hy3-free" {
-			return 0, card, "Current upstream list price is zero during Tencent Cloud's promotion. Zen does not publish this route in its price table."
-		}
-		return 0, card, "OpenCode Zen's published list price is zero."
+		return cost, card, "Paid-equivalent token value for the model used through Zen."
 	case "local":
-		return 0, card, "No published API list price. Hardware depreciation and energy cost were not measured."
+		return cost, card, "No published API list price. Hardware depreciation and energy cost were not measured."
 	default:
-		if metrics.UnpricedRequests > 0 {
-			return 0, card, "Official list cost is unavailable for at least one request."
+		if !cost.Available {
+			return cost, card, "Official list cost is unavailable for at least one request."
 		}
-		return metrics.ListCost.TotalUSD, card, "Official standard API list-cost estimate."
+		return cost, card, "Official standard API list-cost estimate."
 	}
 }
 
@@ -434,6 +443,7 @@ func aggregate(cases []Case) []Aggregate {
 			addMetrics(&value.GenerationMetrics, item.Generation.Metrics.CurrentRun)
 			addMetrics(&value.EvaluationMetrics, item.IndependentAudit.Metrics.CurrentRun)
 			value.GenerationCostUSD += item.GenerationCostUSD
+			value.GenerationListCost = pricing.Add(value.GenerationListCost, item.GenerationListCost)
 			value.EvaluationCostUSD += item.IndependentAudit.Metrics.CurrentRun.ListCost.TotalUSD
 		}
 	}

@@ -22,23 +22,21 @@ These are five observations per available model, not a claim about population-le
 
 Reasoning tokens are included within output tokens and are shown separately for analysis. They must not be added to the total again.
 
-| Model | Requests | Input | Cached input | Output | Reasoning | Total | Generation list cost | Audit tokens | Audit list cost |
+| Model | Requests | Input | Cached input | Output | Reasoning | Total | Paid-equivalent generation cost | Audit tokens | Audit list cost |
 |:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| Nemotron 3 Ultra Free | 5 | 23,629 | 4,352 | 44,837 | 35,306 | 68,466 | $0.000000 | 146,626 | $1.187755 |
-| Hy3 Free | 5 | 22,849 | 3,904 | 11,280 | 0 | 34,129 | $0.000000 | 112,815 | $1.418925 |
-| North Mini Code Free | 5 | 22,381 | 0 | 46,412 | 37,077 | 68,793 | $0.000000 | 102,285 | $1.377925 |
+| Nemotron 3 Ultra Free | 5 | 23,629 | 4,352 | 44,837 | 35,306 | 68,466 | $0.173850 | 146,626 | $1.187755 |
+| Hy3 Free | 5 | 22,849 | 3,904 | 11,280 | 0 | 34,129 | $0.013008 | 112,815 | $1.418925 |
+| North Mini Code Free | 5 | 22,381 | 0 | 46,412 | 37,077 | 68,793 | unavailable | 102,285 | $1.377925 |
 
 Accepted generation used 15 requests, 68,859 input tokens, 8,256 cached input tokens, 102,529 output tokens, and 171,388 total tokens. Of the output total, 72,383 were reported as reasoning tokens. The 30 solution-audit requests used 274,687 input tokens, 87,039 output tokens, and 361,726 total tokens, including 54,728 reported reasoning tokens. Their standard GPT-5.6 Sol list cost was $3.984605.
 
-Five fixed-reference requests used another 20,280 input tokens, 30,977 output tokens, and 51,257 total tokens, including 19,035 reported reasoning tokens. Their standard GPT-5.6 Sol list cost was $1.030710. The complete accepted run therefore accounted for 584,371 tokens and $5.015315 in evaluator list cost. Generation list cost was zero during the applicable promotions.
+Five fixed-reference requests used another 20,280 input tokens, 30,977 output tokens, and 51,257 total tokens, including 19,035 reported reasoning tokens. Their standard GPT-5.6 Sol list cost was $1.030710. The complete accepted run therefore accounted for 584,371 tokens and $5.015315 in evaluator list cost. The paid-equivalent generation value is $0.186858 for the two models with published paid token routes. North Mini Code is excluded from that sum because no paid per-token rate is published.
 
 The accepted-case figures intentionally exclude unsuccessful transport attempts. The proxy trace retains every request, response, retry, latency record, and reported usage event so operational overhead can be analyzed separately without charging failed infrastructure work to model capability.
 
-## Published prices
+## Paid-equivalent prices
 
-OpenCode Zen publishes USD 0 per million input, cached-input, and output tokens for DeepSeek V4 Flash Free, MiMo-V2.5 Free, Nemotron 3 Ultra Free, and North Mini Code Free. It does not publish cache-write prices for these routes.
-
-Zen does not publish Hy3 in its price table. Tencent Cloud publishes the upstream Hy3 promotion at CNY 0 through 2026-07-22, followed by CNY 1 per million input tokens, CNY 0.25 per million cached-input tokens, and CNY 4 per million output tokens. The report preserves the original currency and identifies this as an upstream price, not a Zen price.
+Nemotron uses an OpenRouter paid-route card of $0.60 input, $0.20 cached input, and $3.60 output per million tokens. Hy3 uses an OpenRouter paid-route card of $0.20 input, $0.05 cached input, and $0.80 output per million tokens. DeepSeek and Xiaomi direct rates are recorded for the two quota-limited models and will be applied when those cases complete. Cohere publishes North Mini Code as free for trial and production access and publishes no paid per-token rate, so the report does not invent one.
 
 ## Availability and retries
 
@@ -57,5 +55,4 @@ TAOCP_BRIDGE_URL=http://127.0.0.1:8791/v1 go run ./cmd/taocp matrix \
   --deferred-rate-limit-retries 1 --resume
 ```
 
-The local `report.json` SHA-256 is `51c6457d583ffd0704eb4f608bca16a36cb0c08b7aa4c024237009a69c41154e`. The generated Markdown report SHA-256 is `f405b25c310d101796e9b4a313a20efc6073b56b788fc989eeda91d2324705c0`.
-
+The local `report.json` SHA-256 is `4a139a784c5ec5063d2e75af82046013c3c42642188072a0f0edc4820d559f89`. The generated Markdown report SHA-256 is `d7667365639ee50aaf6263eb5789fde3422c27879498e40d693dcdfdc34b7e78`.
