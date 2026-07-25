@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/tamnd/taocp-solver/config"
+	"github.com/tamnd/taocp-solver/coverage"
 	"github.com/tamnd/taocp-solver/exercise"
 	"github.com/tamnd/taocp-solver/pricing"
 	"github.com/tamnd/taocp-solver/result"
@@ -156,7 +157,10 @@ func TestDoctorJSONNamesTheSource(t *testing.T) {
 // Writing the route file must not need a working network, because the first
 // thing someone does with an empty config is dump the built-ins and edit them.
 func TestDoctorWritesTheEffectiveRouteFile(t *testing.T) {
-	t.Parallel()
+	// Not parallel, and pointed at a path that does not exist: without this the
+	// test reads whatever personal route file the developer happens to have, and
+	// passes or fails by accident of the machine it runs on.
+	t.Setenv("TAOCP_ROUTES", filepath.Join(t.TempDir(), "absent.json"))
 	target := filepath.Join(t.TempDir(), "nested", "routes.json")
 	var output, errors bytes.Buffer
 	if err := run(context.Background(), []string{"doctor", "--write-routes", target}, &output, &errors); err != nil {
@@ -319,6 +323,56 @@ func TestPublishRejectsTwoWaysOfNamingATarget(t *testing.T) {
 	t.Parallel()
 	var stdout bytes.Buffer
 	err := run(context.Background(), []string{"publish", "--section", "1.1", "1.1", "8"}, &stdout, &stdout)
+	if err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCoverageCountsTheQueueAndItsMachineForm(t *testing.T) {
+	t.Parallel()
+	brain, source, output := publishTree(t)
+	// A second exercise nobody has touched, so there is something to be missing.
+	dir := filepath.Join(source, "content", "vol1", "exercises", "1.1")
+	if err := os.WriteFile(filepath.Join(dir, "02.md"), []byte("**2.** [*20*] Prove it.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flags := []string{"coverage", "--brain", brain, "--source", source, "--output", output}
+
+	var stdout bytes.Buffer
+	if err := run(context.Background(), flags, &stdout, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"vol1", "1.1", "1 missing / 2"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("coverage output missing %q, got\n%s", want, stdout.String())
+		}
+	}
+
+	stdout.Reset()
+	if err := run(context.Background(), append(flags, "--missing"), &stdout, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "1.1 2\n" {
+		t.Fatalf("queue = %q, want the one unsolved exercise", stdout.String())
+	}
+
+	stdout.Reset()
+	if err := run(context.Background(), append(flags, "--json"), &stdout, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	var report coverage.Report
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Total != 2 || report.Solved != 1 || report.Missing != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+}
+
+func TestCoverageRejectsTwoWaysOfNamingASection(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"coverage", "--section", "1.1", "1.2.1"}, &stdout, &stdout)
 	if err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Fatalf("err = %v", err)
 	}

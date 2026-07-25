@@ -199,6 +199,44 @@ A stored solution that trips the gate is not published, and a page that is alrea
 `--check` is the pre-commit and cron form.
 It writes nothing and exits non-zero when the tree is out of date, and `--verbose` lists the paths.
 
+### taocp coverage
+
+`taocp coverage` answers which exercises are still missing, and where.
+
+```sh
+taocp coverage                   # every volume, plus the sections with gaps
+taocp coverage --volume 3        # one volume, as 3 or vol4a
+taocp coverage 7.2.2.2           # one section
+taocp coverage --json
+taocp coverage --missing         # the work queue, one section and number per line
+taocp coverage --orphans         # published exercises the source repository does not enumerate
+```
+
+```text
+volume    total  solved  imported  published  verified  missing
+vol1        857       1       843        889       484       13
+vol2        886       0       883        884       498        3
+vol3        939       2       528        535       223      409
+vol4a      1319       0       938        938       229      381
+vol4b       529       0       518        518       148       11
+vol4f6      526       0        95         95        47      431
+total      5056       3      3805       3859      1629     1248
+
+vol1 sections with gaps, worst first
+  1.2.5     7 missing / 25
+  1.2.11.3  6 missing / 20
+```
+
+The three inputs are all directories, so there is no database, no state file, and no cursor.
+Every run recomputes the answer from what is on disk, which is why the queue can never drift from the truth and why an interrupted run needs no recovery.
+The denominator comes from `exercise.List`, the same function the solver uses, so the report and the runner can never disagree about how many exercises a section has.
+
+`imported` counts exercises that are published but have no result in the store, which is every proof written before this tool kept one.
+An exercise is missing only when it has neither, because queueing a published page would spend a model on work that already exists.
+
+`--orphans` lists published exercises whose number the source repository does not enumerate.
+It reports and never deletes: where the two disagree it is usually the extraction that is incomplete, and the published page is the only record that the exercise exists.
+
 ## Command line
 
 Solve one exercise in slow mode, which is the default:
