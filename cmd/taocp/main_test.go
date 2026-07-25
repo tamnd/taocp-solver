@@ -387,3 +387,37 @@ func TestParseMode(t *testing.T) {
 		t.Fatal("expected invalid mode")
 	}
 }
+
+func TestRunPrintsItsQueueWithoutTouchingAnything(t *testing.T) {
+	t.Parallel()
+	brain, source, output := publishTree(t)
+	dir := filepath.Join(source, "content", "vol1", "exercises", "1.1")
+	if err := os.WriteFile(filepath.Join(dir, "02.md"), []byte("**2.** [*20*] Prove it.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	flags := []string{"run", "--brain", brain, "--source", source, "--output", output, "--dry-run"}
+	if err := run(context.Background(), flags, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	// A dry run reads three directories and writes nothing, so it must not need
+	// an endpoint to be configured at all.
+	if !strings.Contains(stderr.String(), "1.1/2 would solve") {
+		t.Fatalf("no queue line for the missing exercise, got\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "1.1/1 ") {
+		t.Fatalf("the solved exercise was queued, got\n%s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "attempted 0") {
+		t.Fatalf("summary = %q", stdout.String())
+	}
+}
+
+func TestRunRejectsAPositionalSection(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"run", "1.1", "--dry-run"}, &stdout, &stdout)
+	if err == nil || !strings.Contains(err.Error(), "no positional arguments") {
+		t.Fatalf("err = %v, want a complaint about the positional section", err)
+	}
+}

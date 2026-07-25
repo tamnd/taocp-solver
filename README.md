@@ -237,6 +237,68 @@ An exercise is missing only when it has neither, because queueing a published pa
 `--orphans` lists published exercises whose number the source repository does not enumerate.
 It reports and never deletes: where the two disagree it is usually the extraction that is incomplete, and the published page is the only record that the exercise exists.
 
+### taocp run
+
+`taocp run` is the campaign.
+It takes the coverage queue, solves it, publishes each proof as it lands, and commits the content repository on its own timer, for as long as there is work.
+
+```sh
+taocp run --dry-run                          # print the queue, touch nothing
+taocp run --volume 3 --parallel 2            # one volume, two exercises at a time
+taocp run --section 5.2.4 --section 5.2.5    # a named slice of the work
+taocp run --limit 10 --mode fast             # a short pass
+taocp run --json                             # the log and the summary as JSON lines
+```
+
+```text
+2026-07-25T14:02:11+07:00 solve 5.2.4/12 route=zen-free mode=slow verdict=PASS truth=true time=8m27s tokens=87309 cost=$0.19
+2026-07-25T14:02:12+07:00 publish 5.2.4/12 written indexes=1
+2026-07-25T14:10:00+07:00 commit 5 files pushed
+```
+
+Everything it does is restartable.
+The queue is recomputed from the three directories on every pass, and each exercise is stored and published before the next one starts, so a run that is killed loses at most the exercise that was in flight.
+
+A stored result with no solution is a tombstone.
+The exercise stays out of the queue until `--retry-empty` asks for it, which is what keeps a week-long run from spending every pass on the same unsolvable exercise.
+
+When a route runs out of quota the pool moves to the next one.
+When every route is cold the run sleeps until the earliest one returns, capped by `--max-sleep`, rather than exiting and losing the campaign to a quota window.
+
+SIGINT and SIGTERM stop the queue, let the solves already in flight finish for up to `--drain`, force a final commit, and exit zero.
+
+The commit messages are the ones the content repository's history already has, so replacing the shell scripts this came from does not read as a change of hands:
+
+```text
+Add 5 solutions [auto]
+
+  taocp 7.2.1.1: 3 files
+  taocp 5.2.4: 2 files
+```
+
+Every git command runs under an advisory lock on `/tmp/brain_git.lock`, so a second runner on the same host cannot interleave with it.
+Two hosts publishing into the same repository is fine on its own: give each a disjoint `--section` list so they are not solving the same exercises, and let the merge sort out the indexes.
+
+The runner never clones and never resets.
+Both repositories are cloned once and kept on main by hand, because a runner that repairs its own working copy is a runner that can throw away work.
+
+### Running it on another host
+
+A run host does not need a Go toolchain.
+
+```sh
+make dist                  # static linux/amd64 binary in dist/
+make deploy HOST=server3   # binary, unit file, and a remote doctor probe
+```
+
+`deploy/taocp-run.service` is a systemd user unit that probes with `taocp doctor` before it starts, so it will not begin a campaign it cannot make progress on, and restarts on failure.
+`deploy/taocp-run.env.example` is the environment it reads.
+Under `screen` the same thing is one line:
+
+```sh
+screen -dmS taocp-run bash -lc 'taocp run --parallel 2 --mode slow'
+```
+
 ## Command line
 
 Solve one exercise in slow mode, which is the default:

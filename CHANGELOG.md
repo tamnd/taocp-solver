@@ -24,6 +24,16 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - Coverage counts published-but-unstored exercises as `imported` rather than missing. On a fresh install the store is empty while thousands of pages are published, and queueing those would spend a model on work that already exists.
 - `--missing` writes the work queue one section and number per line, sorted so consecutive runs give the same order and an interrupted run needs no cursor.
 - `--orphans` lists published exercises the source repository does not enumerate. It reports and never deletes, because where the two disagree it is usually the extraction that is incomplete and the published page is the only record that the exercise exists.
+- `taocp run` works the coverage queue unattended: solve, store, publish that one exercise, and commit the content repository on its own timer. It is meant to be started in a screen session or under systemd and left for days.
+- Every exercise is published the moment it is solved rather than at the end, so an interrupted run leaves the content repository consistent instead of holding a batch that dies with the process.
+- The queue is recomputed from the three directories on every pass, so a run that is killed needs no cursor and loses at most the exercise that was in flight.
+- A stored result with no solution is a tombstone: the exercise stays out of the queue until `--retry-empty` asks for it, which is what stops a week-long run from spending every pass on the same unsolvable exercise.
+- When every route is cold the run sleeps until the earliest one returns, capped by `--max-sleep`, instead of exiting and losing the campaign to a quota window.
+- SIGINT and SIGTERM stop the queue, let the solves already in flight finish for up to `--drain`, force a final commit, and exit zero.
+- The generated commit messages are the ones the content repository's history already has, down to the per-section file counts, so replacing the shell scripts does not show up as a change of hands.
+- Every git command runs under an advisory lock, so a second runner or a leftover cron job on the same host cannot interleave with it.
+- `--dry-run` prints the queue and touches nothing, and does not need a working endpoint to do it.
+- `make dist` cross-compiles a static Linux binary and `make deploy HOST=...` installs it with a systemd user unit, because a run host is not required to have a Go toolchain.
 
 ### Changed
 
