@@ -1,0 +1,4 @@
+# The publish goldens are compared byte for byte against pages that are live, so
+# a Windows checkout that rewrote their line endings would fail every parity test
+# for a reason that has nothing to do with the renderer.
+* text=auto eol=lf

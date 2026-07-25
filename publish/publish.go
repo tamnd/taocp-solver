@@ -11,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	// Windows ships no zone database, so loading Asia/Ho_Chi_Minh there fails
+	// unless the binary carries one. A published date with the wrong offset is
+	// worse than the few hundred kilobytes this costs.
+	_ "time/tzdata"
 
 	"github.com/tamnd/taocp-solver/exercise"
 	"github.com/tamnd/taocp-solver/result"
