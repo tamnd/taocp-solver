@@ -99,7 +99,7 @@ func (c Config) ResponsesURL() string {
 }
 
 // ChatCompletionsURL is the bridge-compatible endpoint used by the solver.
-// The local subscription bridge translates this request to the Responses wire.
+// taocp bridge translates this request to the upstream Responses wire.
 func (c Config) ChatCompletionsURL() string {
 	base := strings.TrimRight(c.BaseURL, "/")
 	if strings.HasSuffix(base, "/v1") {

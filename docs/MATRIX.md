@@ -54,10 +54,12 @@ taocp matrix --write-manifest matrix.json
 The default endpoint layout is:
 
 ```text
-Zen tracing proxy:     http://127.0.0.1:8788/v1
+Zen tracing proxy:      http://127.0.0.1:8788/v1
 GamingPC tracing proxy: http://127.0.0.1:8789/v1
-GPT bridge:            http://127.0.0.1:8790/v1
+taocp bridge:           http://127.0.0.1:8790/v1
 ```
+
+8788 and 8789 are external tracing proxies you start yourself. 8790 is `taocp bridge`, in this repository.
 
 Run the matrix with resumable per-case artifacts:
 
