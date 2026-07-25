@@ -14,7 +14,7 @@ func TestDefaultManifestIsStratifiedAndPriced(t *testing.T) {
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Exercises) != 5 || len(manifest.Models) != 23 {
+	if len(manifest.Exercises) != 5 || len(manifest.Models) != 22 {
 		t.Fatalf("manifest has %d exercises and %d models", len(manifest.Exercises), len(manifest.Models))
 	}
 	levels := []int{5, 15, 25, 30, 35}
@@ -32,9 +32,20 @@ func TestDefaultManifestIsStratifiedAndPriced(t *testing.T) {
 			t.Errorf("free profile %q retry policy = retries %v, max delay %d", profile.Model, profile.MaxRetries, profile.MaxRetryDelaySeconds)
 		}
 	}
-	sol := manifest.Models[len(manifest.Models)-6]
-	if len(sol.Modes) != 2 || sol.Modes[0] != solver.ModeFast || sol.Modes[1] != solver.ModeSlow {
-		t.Fatalf("gpt-5.6-sol modes = %v", sol.Modes)
+	var deep ModelProfile
+	for _, profile := range manifest.Models {
+		if profile.Model == "gpt-5.6-sol" {
+			t.Errorf("manifest lists gpt-5.6-sol, which no ChatGPT-account credential may use")
+		}
+		if profile.Model == deepModel {
+			deep = profile
+		}
+	}
+	if len(deep.Modes) != 2 || deep.Modes[0] != solver.ModeFast || deep.Modes[1] != solver.ModeSlow {
+		t.Fatalf("%s modes = %v", deepModel, deep.Modes)
+	}
+	if manifest.Evaluator.Model != deepModel {
+		t.Errorf("evaluator model = %q", manifest.Evaluator.Model)
 	}
 	if manifest.Evaluator.MaxRetries == nil || *manifest.Evaluator.MaxRetries != 1 {
 		t.Fatalf("evaluator retries = %v", manifest.Evaluator.MaxRetries)
