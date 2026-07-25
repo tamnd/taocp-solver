@@ -15,11 +15,13 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/spf13/pflag"
 
 	"github.com/tamnd/taocp-solver/api"
 	"github.com/tamnd/taocp-solver/benchmark"
+	"github.com/tamnd/taocp-solver/codex"
 	"github.com/tamnd/taocp-solver/config"
 	"github.com/tamnd/taocp-solver/exercise"
 	"github.com/tamnd/taocp-solver/matrix"
@@ -65,6 +67,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runBenchmark(ctx, args[1:], stdout, stderr)
 	case "matrix":
 		return runMatrix(ctx, args[1:], stdout, stderr)
+	case "bridge":
+		return runBridge(ctx, args[1:], stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q; run taocp help", args[0])
 	}
@@ -589,6 +593,69 @@ func printMetrics(w io.Writer, metrics result.MetricSet) error {
 	return err
 }
 
+func runBridge(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := pflag.NewFlagSet("bridge", pflag.ContinueOnError)
+	fs.SetOutput(stderr)
+	port := fs.Int("port", 8790, "listen port")
+	host := fs.String("host", "127.0.0.1", "listen address; a non-loopback address requires --api-key")
+	apiKey := fs.String("api-key", "", "key clients must present as a bearer token")
+	authPath := fs.String("auth", "", "Codex credential file; defaults to ~/.codex/auth.json")
+	model := fs.String("model", codex.DefaultModel, "model used when a request does not name one")
+	effort := fs.String("effort", "", "reasoning effort applied when a request does not set one")
+	timeoutText := fs.String("timeout", "30m", "upstream request timeout")
+	retries := fs.Int("retries", 2, "retries for transient upstream failures")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) != 0 {
+		return errors.New("bridge takes no positional arguments")
+	}
+	timeout, err := time.ParseDuration(*timeoutText)
+	if err != nil {
+		return fmt.Errorf("invalid timeout: %w", err)
+	}
+
+	auth := &codex.Auth{
+		Path: *authPath,
+		Logf: func(format string, args ...any) { fmt.Fprintf(stderr, format+"\n", args...) },
+	}
+	// Read the credential before binding the port. Failing here with a clear
+	// message beats a listener that answers every request with the same 502.
+	token, err := auth.Token(ctx)
+	if err != nil {
+		return err
+	}
+	bridge := &codex.Bridge{
+		Client: &codex.Client{
+			Auth:       auth,
+			HTTPClient: &http.Client{Timeout: timeout},
+			MaxRetries: *retries,
+			Effort:     *effort,
+		},
+		APIKey: *apiKey,
+		Model:  *model,
+		Logf:   func(format string, args ...any) { fmt.Fprintf(stderr, format+"\n", args...) },
+	}
+	expiry := "unknown"
+	if !token.ExpiresAt.IsZero() {
+		expiry = token.ExpiresAt.Local().Format(time.RFC3339)
+	}
+	return bridge.Serve(ctx, *host, *port, func(address string) {
+		fmt.Fprintf(stdout, "taocp bridge on http://%s, plan %s, token expires %s, default model %s\n",
+			address, orUnknown(token.PlanType), expiry, *model)
+		if *apiKey == "" {
+			fmt.Fprintln(stdout, "no --api-key set, so any local process can spend this plan's quota")
+		}
+	})
+}
+
+func orUnknown(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "unknown"
+	}
+	return value
+}
+
 func usage(w io.Writer) error {
 	_, err := fmt.Fprint(w, `taocp solves and reviews TAOCP exercises through an OpenAI-compatible bridge or proxy.
 
@@ -600,6 +667,7 @@ Usage:
   taocp review SECTION NUMBER --file solution.md [flags]
   taocp benchmark SECTION NUMBER [flags]
   taocp matrix [flags]
+  taocp bridge [flags]
   taocp version
 
 Run a command with -h to see its flags.
