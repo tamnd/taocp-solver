@@ -122,7 +122,7 @@ Each route names its own wire format, endpoint, model, and the environment varia
     {
       "name": "proxy-free",
       "wire": "chat",
-      "base_url": "http://127.0.0.1:8788/v1",
+      "base_url": "https://opencode.ai/zen/v1",
       "model": "nemotron-3-ultra-free",
       "api_key_env": "PROXY_API_KEY",
       "rank": 30,

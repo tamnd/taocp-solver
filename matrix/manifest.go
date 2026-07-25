@@ -9,6 +9,11 @@ import (
 	"github.com/tamnd/taocp-solver/solver"
 )
 
+// deepModel is the strongest slug a ChatGPT-account credential can reach. It is
+// the one the matrix runs in both modes and the one that judges the grid, so it
+// is named once rather than repeated.
+const deepModel = "gpt-5.6-luna"
+
 type Exercise struct {
 	Section string `json:"section"`
 	Number  int    `json:"number"`
@@ -102,9 +107,13 @@ func DefaultManifest() Manifest {
 	} {
 		profiles = append(profiles, profile(model, "gamingpc", model, localURL, "", "local", fast))
 	}
-	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"} {
+	// A ChatGPT-account credential may not use gpt-5.6-sol, on any plan, so a
+	// matrix that listed it spent a row of the grid on a guaranteed 400. Luna is
+	// the strongest slug such a credential can actually reach, which makes it the
+	// one worth running in both modes.
+	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"} {
 		modes := fast
-		if model == "gpt-5.6-sol" {
+		if model == deepModel {
 			modes = []solver.Mode{solver.ModeFast, solver.ModeSlow}
 		}
 		profiles = append(profiles, profile(model, "bridge", model, bridgeURL, "", "official-list", modes))
@@ -119,7 +128,7 @@ func DefaultManifest() Manifest {
 		},
 		Models: profiles,
 		Evaluator: func() ModelProfile {
-			value := profile("evaluator-gpt-5.6-sol", "bridge", "gpt-5.6-sol", bridgeURL, "", "official-list", nil)
+			value := profile("evaluator-"+deepModel, "bridge", deepModel, bridgeURL, "", "official-list", nil)
 			value.MaxRetries = intPointer(1)
 			return value
 		}(),
