@@ -26,6 +26,7 @@ import (
 	"github.com/tamnd/taocp-solver/exercise"
 	"github.com/tamnd/taocp-solver/matrix"
 	"github.com/tamnd/taocp-solver/prompt"
+	"github.com/tamnd/taocp-solver/publish"
 	"github.com/tamnd/taocp-solver/result"
 	"github.com/tamnd/taocp-solver/route"
 	"github.com/tamnd/taocp-solver/solver"
@@ -70,6 +71,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runMatrix(ctx, args[1:], stdout, stderr)
 	case "bridge":
 		return runBridge(ctx, args[1:], stdout, stderr)
+	case "publish":
+		return runPublish(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(ctx, args[1:], stdout, stderr)
 	default:
@@ -728,6 +731,74 @@ func runBridge(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	})
 }
 
+// runPublish renders stored solutions into the brain content tree. It never
+// touches git, so running it by hand is safe and committing stays the runner's
+// job.
+func runPublish(args []string, stdout, stderr io.Writer) error {
+	defaults := config.FromEnv()
+	fs := pflag.NewFlagSet("publish", pflag.ContinueOnError)
+	fs.SetOutput(stderr)
+	brain := fs.String("brain", defaults.BrainRoot, "brain repository to publish into")
+	source := fs.String("source", defaults.TAOCPRoot, "TAOCP source repository")
+	output := fs.String("output", defaults.OutputRoot, "result store to publish from")
+	section := fs.String("section", "", "publish one section")
+	check := fs.Bool("check", false, "report what would change, write nothing, exit non-zero if anything would")
+	verbose := fs.Bool("verbose", false, "list every path that changed")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	var targets []publish.Target
+	switch {
+	case len(fs.Args()) > 0 && *section != "":
+		return errors.New("give either --section or a positional target, not both")
+	case len(fs.Args()) > 0:
+		name, number, err := parseTarget(fs.Args())
+		if err != nil {
+			return err
+		}
+		targets = append(targets, publish.Target{Section: name, Number: number})
+	case *section != "":
+		targets = append(targets, publish.Target{Section: *section})
+	}
+
+	publisher := publish.New(*brain, *source, result.Store{Root: *output})
+	report, err := publisher.Run(targets, *check)
+	if err != nil {
+		return err
+	}
+
+	verb := "written"
+	if *check {
+		verb = "to write"
+	}
+	if _, err := fmt.Fprintf(stdout, "publish: %d solutions %s, %d deleted by leak gate, %d unchanged\n",
+		report.Written, verb, report.Deleted, report.Unchanged); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "indexes: %d sections, %d volumes, %d top\n",
+		report.Sections, report.Volumes, report.Top); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "brain: %d solved, %d verified, %d total\n",
+		report.Solved, report.Verified, report.Total); err != nil {
+		return err
+	}
+	if *verbose {
+		for _, path := range report.Changes {
+			if _, err := fmt.Fprintln(stdout, " ", path); err != nil {
+				return err
+			}
+		}
+	}
+	// A check that exits zero when the tree is out of date would be useless in a
+	// pre-commit hook or a scheduled run.
+	if *check && len(report.Changes) > 0 {
+		return fmt.Errorf("%d files would change", len(report.Changes))
+	}
+	return nil
+}
+
 // runDoctor probes every route and reports what it found. It exits non-zero
 // when nothing is live, which is what makes it usable as a cron guard and as a
 // systemd ExecStartPre.
@@ -840,6 +911,7 @@ Usage:
   taocp review SECTION NUMBER --file solution.md [flags]
   taocp benchmark SECTION NUMBER [flags]
   taocp matrix [flags]
+  taocp publish [SECTION NUMBER] [flags]
   taocp bridge [flags]
   taocp doctor [flags]
   taocp version

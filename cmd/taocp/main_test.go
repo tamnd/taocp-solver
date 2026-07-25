@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/tamnd/taocp-solver/config"
+	"github.com/tamnd/taocp-solver/exercise"
 	"github.com/tamnd/taocp-solver/pricing"
 	"github.com/tamnd/taocp-solver/result"
 	"github.com/tamnd/taocp-solver/route"
@@ -229,6 +230,97 @@ func TestEnvironmentBaseURLDoesNotBecomeARoute(t *testing.T) {
 	}
 	if got := pool.Names(); len(got) != 1 || got[0] != "configured" {
 		t.Fatalf("routes = %v", got)
+	}
+}
+
+// publishTree builds a source repository, an empty brain and a result store, so
+// the command test drives the same file walk a real run would.
+func publishTree(t *testing.T) (brain, source, output string) {
+	t.Helper()
+	root := t.TempDir()
+	source, brain, output = filepath.Join(root, "taocp"), filepath.Join(root, "brain"), filepath.Join(root, "results")
+	dir := filepath.Join(source, "content", "vol1", "exercises", "1.1")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	page := `---
+section: "1.1"
+section_title: "Algorithms"
+chapter: 1
+chapter_title: "Basic Concepts"
+volume: 1
+book_pages: "1–9"
+exercise: 1
+rating: "10"
+category: "simple"
+---
+**1.** [*10*] Explain the notation.
+`
+	if err := os.WriteFile(filepath.Join(dir, "01.md"), []byte(page), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target, _, err := exercise.NewRepository(source).Load("1.1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (result.Store{Root: output}).Save(result.Result{
+		ID: "1.1.1", Exercise: target, Solution: "The notation names the steps.", Verified: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return brain, source, output
+}
+
+func TestPublishWritesAndThenHasNothingLeftToDo(t *testing.T) {
+	t.Parallel()
+	brain, source, output := publishTree(t)
+	flags := []string{"publish", "--brain", brain, "--source", source, "--output", output}
+
+	var first bytes.Buffer
+	if err := run(context.Background(), append(flags, "--verbose"), &first, &first); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(first.String(), "publish: 1 solutions written") {
+		t.Fatalf("first run = %q", first.String())
+	}
+	if !strings.Contains(first.String(), filepath.Join("1.1", "01.md")) {
+		t.Errorf("verbose must name the paths it wrote: %q", first.String())
+	}
+
+	// A second run over an unchanged store is what keeps brain's git history and
+	// the published dates intact, so the command has to report it as such.
+	var second bytes.Buffer
+	if err := run(context.Background(), flags, &second, &second); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(second.String(), "publish: 0 solutions written, 0 deleted by leak gate, 1 unchanged") {
+		t.Fatalf("second run = %q", second.String())
+	}
+}
+
+func TestPublishCheckWritesNothingAndFails(t *testing.T) {
+	t.Parallel()
+	brain, source, output := publishTree(t)
+
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"publish", "--check", "--brain", brain, "--source", source, "--output", output}, &stdout, &stdout)
+	if err == nil {
+		t.Fatal("a check over an out of date brain must exit non-zero")
+	}
+	if !strings.Contains(stdout.String(), "publish: 1 solutions to write") {
+		t.Errorf("check output = %q", stdout.String())
+	}
+	if _, statErr := os.Stat(brain); !os.IsNotExist(statErr) {
+		t.Error("a check run must not create anything")
+	}
+}
+
+func TestPublishRejectsTwoWaysOfNamingATarget(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	err := run(context.Background(), []string{"publish", "--section", "1.1", "1.1", "8"}, &stdout, &stdout)
+	if err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

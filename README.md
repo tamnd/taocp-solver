@@ -164,6 +164,37 @@ Where an endpoint publishes a catalogue, doctor compares it against the configur
 taocp doctor --suggest-routes /tmp/routes.json
 ```
 
+### taocp publish
+
+`taocp publish` renders the result store into the site content tree and rebuilds the section, volume, and top indexes around it.
+
+```sh
+taocp publish                    # everything in the store that is missing or out of date
+taocp publish 1.2.1 8            # one exercise
+taocp publish --section 7.2.2.2  # one section
+taocp publish --check            # say what would change, write nothing, exit non-zero if anything would
+taocp publish --brain DIR --source DIR --output DIR
+```
+
+```text
+publish: 2 solutions written, 0 deleted by leak gate, 3856 unchanged
+indexes: 118 sections, 4 volumes, 1 top
+brain: 3858 solved, 3122 verified, 12153 total
+```
+
+Thousands of pages are already published, so the renderer reproduces the format that is on disk down to the byte, and the golden tests are copies of real pages.
+An unchanged solution is left alone rather than rewritten, which is what keeps its original publication date and keeps the site history readable.
+The comparison ignores the `date:` line, because that line is stamped at render time and would otherwise make every page look changed on every run.
+Two runs over an unchanged store leave `git status` empty in the content repository, and the test suite asserts that against a real `git init`.
+
+Dates are stamped in `Asia/Ho_Chi_Minh`.
+
+Every solution passes the leak gate before it is written.
+A stored solution that trips the gate is not published, and a page that is already live and now trips it is deleted and counted separately, so the gate can be tightened without leaving old pages behind.
+
+`--check` is the pre-commit and cron form.
+It writes nothing and exits non-zero when the tree is out of date, and `--verbose` lists the paths.
+
 ## Command line
 
 Solve one exercise in slow mode, which is the default:
@@ -280,6 +311,7 @@ Use `taocp.WithCompleter` to supply a custom model transport, `taocp.WithReposit
 | `TAOCP_SOLVER_MODEL` | `gpt-5.6` | Model name |
 | `TAOCP_SOLVER_SOURCE` | `~/github/tamnd/taocp` | TAOCP content repository |
 | `TAOCP_SOLVER_OUTPUT` | `~/data/taocp-solver` | JSON and Markdown results |
+| `TAOCP_SOLVER_BRAIN` | `~/github/tamnd/brain` | Site content repository `taocp publish` writes into |
 | `TAOCP_SOLVER_TIMEOUT` | `30m` | Timeout for each model call |
 | `TAOCP_SOLVER_MAX_CORRECTIONS` | `2` | Correction passes |
 | `TAOCP_SOLVER_CANDIDATES` | `3` | Independent solution candidates, from 1 to 5 |

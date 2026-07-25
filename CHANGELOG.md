@@ -12,6 +12,13 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - A route file, given with `--routes` or `--route`, names several ranked endpoints so a run continues on the next one when the current one runs out of quota, loses its credential, or stops answering. Cooldowns match the cause rather than being uniform, and every attempt records the route that served it.
 - Results report a `by_route` token and cost breakdown once more than one route contributed, and the saved `model` names the models that actually answered rather than the one that was requested.
 - `taocp doctor` probes every route, prints a table or JSON, compares each configured model against the endpoint's catalogue, and exits non-zero when nothing is live, so it can guard an unattended run. `--write-routes` dumps the effective file for editing and `--suggest-routes` refreshes one from the live catalogues, appending unknown models disabled.
+- `taocp publish` renders the result store into the site content tree and rebuilds the section, volume, and top indexes. The format matches what is already published byte for byte, and the golden tests are copies of live pages, because a renderer that drifted by one byte would rewrite the whole corpus.
+- An unchanged solution is left alone rather than rewritten, so it keeps its original publication date. The comparison ignores the `date:` line, which is stamped at render time, and two runs over an unchanged store leave the content repository's `git status` empty.
+- Every page passes the leak gate before it is written. A stored solution that trips the gate is not published, and a live page that now trips it is deleted and counted on its own line.
+- `--check` reports what would change, writes nothing, and exits non-zero when the tree is out of date, which makes it usable as a pre-commit hook or a scheduled guard.
+- Published dates carry a real `Asia/Ho_Chi_Minh` clock. The previous publisher stamped a UTC time and labelled it `+07:00`, so every date was seven hours early against its own offset.
+- A section index falls back to the pages already published when the source repository has nothing to list for it, instead of rendering a table with a header and no rows.
+- `TAOCP_SOLVER_BRAIN` names the content repository, defaulting to `~/github/tamnd/brain`.
 
 ### Changed
 
