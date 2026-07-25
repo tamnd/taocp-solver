@@ -95,6 +95,75 @@ Quota is reported only as response headers, so `/v1/health` says `unknown until 
 
 Available models depend on the credential rather than on this program. A 400 naming the model means the slug is not served over this wire; it does not mean the plan is out of quota.
 
+## Routes
+
+A single `--base-url` is fine until the endpoint behind it stops answering, which on free and subscription endpoints is a normal daily event rather than an exception. A route file names several endpoints, ranks them, and lets a run move to the next one when the current one dies.
+
+```sh
+taocp doctor --write-routes ~/.config/taocp/routes.json
+taocp solve 1.2.6 10 --routes ~/.config/taocp/routes.json
+taocp solve 1.2.6 10 --routes ~/.config/taocp/routes.json --route zen-free-nemotron
+```
+
+Passing either flag is what enables failover. Without them a run uses `--base-url` exactly as before, so no existing command line changes behaviour. `--route` restricts a run to the named routes and tries them in the order given, which overrides the ranks in the file. Naming a route without naming a file falls back to `$TAOCP_ROUTES`, then `~/.config/taocp/routes.json`, then a built-in order.
+
+Each route names its own wire format, endpoint, model, and the environment variable holding its key, so a route file carries no secrets and can be shared or committed.
+
+```json
+{
+  "routes": [
+    {
+      "name": "subscription",
+      "wire": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "high",
+      "rank": 10
+    },
+    {
+      "name": "proxy-free",
+      "wire": "chat",
+      "base_url": "http://127.0.0.1:8788/v1",
+      "model": "nemotron-3-ultra-free",
+      "api_key_env": "PROXY_API_KEY",
+      "rank": 30,
+      "pricing": "nemotron-3-ultra-free"
+    }
+  ]
+}
+```
+
+`wire` is `chat` for streaming Chat Completions, `responses` for the Responses protocol, and `codex` for a stored subscription credential read the same way `taocp bridge` reads it. `rank` orders the routes, lowest first. `pricing` names the rate card that applies when the served model has none of its own, so a report says unavailable rather than zero. A route can be `disabled` with a `note` saying why, which is more useful than deleting the row and rediscovering the problem later.
+
+Failover is per model call rather than per exercise. A run whose reference lands on one route and whose candidates land on another is normal, every attempt records the route that served it, and the result reports a `by_route` token and cost breakdown as soon as more than one route contributed. The saved `model` field names the models that actually answered, not the one that was requested.
+
+A route that fails is put on a cooldown that matches the cause: until the reset instant the provider named for an exhausted quota, six hours for a rejected credential, a doubling minute-to-half-hour backoff for something merely broken, and out of the run entirely for a model the endpoint says it does not serve. When every route is cold the error names each one and when the first becomes usable again.
+
+### taocp doctor
+
+`taocp doctor` probes every route and reports what it found. It exits 0 when at least one route is live and 1 when none is, which makes it usable as a cron guard or a service `ExecStartPre`.
+
+```sh
+taocp doctor
+taocp doctor --json
+taocp doctor --route subscription
+taocp doctor --routes ~/.config/taocp/routes.json --timeout 90s
+```
+
+```text
+route        state         latency   model                  detail
+subscription live             1.3s   gpt-5.6-luna           plan free, token valid until 2026-08-04T10:21:47Z
+proxy-free   live             2.4s   nemotron-3-ultra-free  ok
+old-proxy    unreachable      0.0s   nemotron-3-ultra-free  dial tcp 127.0.0.1:8788: connect: connection refused
+```
+
+Disabled routes are probed too, because a route is disabled over something that was true once and doctor is how you find out it has changed. Each probe costs one trivial completion, so probing a whole file is a few hundred tokens rather than a solve.
+
+Where an endpoint publishes a catalogue, doctor compares it against the configured model. A catalogue that answers and does not list the model is the clearest possible statement that the route file is stale, and `--suggest-routes` writes a refreshed file: ranks of routes that still exist are kept, vanished models are disabled with the reason, and unknown free models are appended disabled, so a human decides whether a new model gets to touch a published proof.
+
+```sh
+taocp doctor --suggest-routes /tmp/routes.json
+```
+
 ## Command line
 
 Solve one exercise in slow mode, which is the default:
@@ -162,7 +231,7 @@ taocp matrix --manifest matrix.json --parallel 2 --resume
 
 The built-in manifest covers five difficulty levels, five limited-time Zen routes, twelve local GamingPC models, and six GPT models. It runs every profile in fast mode and adds a matched slow-mode run for GPT-5.6 Sol. One fixed GPT-5.6 Sol evaluator builds a single reference per exercise, then applies a reference-grounded criteria judge and a reference-blind falsification judge to every solution. Provider failures and evaluation failures are separate from false solutions. The resumable report preserves each solution, both audits, every token component, published price card, generation cost, evaluation cost, latency, and aggregate capability rates. See [the matrix protocol](docs/MATRIX.md) and the [2026-07-20 Zen evaluation](docs/ZEN-EVALUATION.md).
 
-Flags can appear before or after positional arguments. Every model-calling command accepts `--base-url`, `--api-key`, `--model`, `--source`, `--output`, `--timeout`, and `--retries`.
+Flags can appear before or after positional arguments. Every model-calling command accepts `--base-url`, `--api-key`, `--model`, `--source`, `--output`, `--timeout`, `--retries`, `--routes`, and `--route`.
 
 ## Library
 
@@ -216,6 +285,7 @@ Use `taocp.WithCompleter` to supply a custom model transport, `taocp.WithReposit
 | `TAOCP_SOLVER_CANDIDATES` | `3` | Independent solution candidates, from 1 to 5 |
 | `TAOCP_SOLVER_MAX_RETRIES` | `4` | Transient transport retries |
 | `TAOCP_SOLVER_PARALLEL` | `2` or available CPUs | Batch workers |
+| `TAOCP_ROUTES` | `~/.config/taocp/routes.json` | Route file used when `--routes` is not given |
 
 The output store writes `{section}/{number}.json` and `{section}/{number}.md` atomically. JSON keeps the final solution, both latest judge reports, truth decision, model response identifiers, token counts, list-cost estimates, timestamps, and the complete attempt sequence.
 
