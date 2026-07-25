@@ -49,17 +49,17 @@ make test build
 
 ## Bridge and proxy
 
-The default transport is streaming Chat Completions because the local subscription bridge accepts that wire format and translates it to the upstream Responses protocol. A tracing proxy can sit between `taocp` and the bridge without changing the solver:
+The default transport is streaming Chat Completions because the bridge accepts that wire format and translates it to the upstream Responses protocol. A tracing proxy can sit between `taocp` and the bridge without changing the solver:
 
 ```text
-taocp -> trace proxy -> local bridge -> model backend
+taocp -> trace proxy -> taocp bridge -> model backend
 ```
 
 Point `--base-url` at the proxy when tracing, or at the bridge when calling it directly. The URL may end at the server root or `/v1`.
 
 ```sh
 export TAOCP_SOLVER_BASE_URL=http://localhost:8790/v1
-export TAOCP_SOLVER_MODEL=gpt-5.6-sol
+export TAOCP_SOLVER_MODEL=gpt-5.6-luna
 
 taocp solve 1.1 1
 ```
@@ -69,6 +69,31 @@ An API key is optional for a trusted local bridge and required when the selected
 ```sh
 export TAOCP_SOLVER_API_KEY=your-key
 ```
+
+### taocp bridge
+
+`taocp bridge` is that bridge. It puts an OpenAI-compatible surface in front of a ChatGPT subscription, reading the OAuth credential the Codex CLI leaves in `~/.codex/auth.json` and refreshing the access token when it is close to expiry. Refreshes are written back atomically at mode 0600 with a backup and a lock, and fields this program does not recognise are preserved, because the CLI may be using the same file.
+
+```sh
+taocp bridge --port 8790
+taocp bridge --port 8790 --api-key sk-local --model gpt-5.6-terra
+taocp bridge --auth /path/to/credential.json
+```
+
+| Endpoint | Behaviour |
+| --- | --- |
+| `POST /v1/chat/completions` | messages flattened to instructions plus input, streaming and non-streaming |
+| `POST /v1/responses` | passed through unchanged apart from credential headers, so the Codex CLI can point here |
+| `GET /v1/models` | the model slugs a ChatGPT-account credential may use |
+| `GET /v1/health` | plan, token expiry, quota windows, and the last upstream error |
+
+The listener defaults to `127.0.0.1`. `--api-key` is optional on a loopback listener and required as soon as `--host` is not loopback, because a bridge that hands a subscription to the whole network without a key is not a convenience.
+
+Two credential layouts are read: the nested `tokens` object the Codex CLI writes, and the flat OAuth token response that other tools completing the same flow leave behind.
+
+Quota is reported only as response headers, so `/v1/health` says `unknown until the first request` until one has been made. An exhausted plan comes back as HTTP 429 with `usage_limit_reached`, the exact reset instant, and a `Retry-After`, which is what lets a caller sleep until the window reopens instead of retrying into a wall. That is deliberately distinct from an ordinary rate limit, which is retried in place, and from a rejected model slug, which is a request error and not an entitlement problem.
+
+Available models depend on the credential rather than on this program. A 400 naming the model means the slug is not served over this wire; it does not mean the plan is out of quota.
 
 ## Command line
 

@@ -16,8 +16,8 @@ import (
 )
 
 // ChatClient uses the OpenAI-compatible chat completions wire. It is the
-// preferred client for a local subscription bridge because the bridge converts
-// chat messages into the upstream Responses format and preserves streaming.
+// preferred client for taocp bridge because the bridge converts chat messages
+// into the upstream Responses format and preserves streaming.
 type ChatClient struct {
 	URL             string
 	APIKey          string

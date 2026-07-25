@@ -4,6 +4,12 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 
 ## [Unreleased]
 
+### Added
+
+- `taocp bridge`, an OpenAI-compatible local server that puts a ChatGPT account behind `/v1/chat/completions`, `/v1/responses`, `/v1/models`, and `/v1/health`. The solver no longer needs a separate program to reach that backend.
+- Access tokens are refreshed before expiry and written back atomically at mode 0600, with a backup, a lock, and unrecognised fields preserved, so a credential file shared with another tool survives the write.
+- An exhausted plan is reported as its own condition with the exact reset instant and a `Retry-After`, distinct from a transient rate limit, which is retried in place, and from a rejected model slug, which is a request error.
+
 ### Changed
 
 - The matrix values a free-route execution at the paid token rate for the same underlying model instead of recording it as costing zero. A free promotion is a billing state, not a measure of what the work is worth.

@@ -41,18 +41,24 @@ These are standard GPT-5.6 Sol API list-cost estimates applied to provider-repor
 
 ## Reproduction
 
-Start a compatible local bridge on port 8790, then run:
+Start the bridge, leave it running, and drive the benchmark through it:
+
+```sh
+taocp bridge --port 8790
+```
 
 ```sh
 go run ./cmd/taocp benchmark 7.2.1.2 97 \
   --base-url http://localhost:8790/v1 \
-  --model gpt-5.6-sol \
+  --model gpt-5.6-luna \
   --source /Users/apple/github/tamnd/taocp \
   --output /Users/apple/data/taocp-solver-eval \
   --candidates 3 \
   --timeout 30m \
   --json
 ```
+
+The recorded run used `gpt-5.6-sol`, which the bridge no longer reaches. `GET /v1/models` on a running bridge lists the slugs the current credential may use, and `gpt-5.6-luna` is the closest substitute. Token counts and cost estimates from a rerun will not match the numbers above, so treat them as a fresh measurement rather than a check of this one.
 
 ## Limits
 
