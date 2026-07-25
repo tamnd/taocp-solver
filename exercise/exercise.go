@@ -14,7 +14,10 @@ import (
 
 const defaultContextLimit = 12000
 
-var exerciseFile = regexp.MustCompile(`^(\d+)(?:_(\d+))?\.md$`)
+var (
+	exerciseFile = regexp.MustCompile(`^(\d+)(?:_(\d+))?\.md$`)
+	sectionName  = regexp.MustCompile(`^\d+(?:\.\d+)*$`)
+)
 
 type Exercise struct {
 	SectionID    string `json:"section_id"`
@@ -106,8 +109,14 @@ func (r *Repository) Load(sectionID string, number int) (Exercise, Context, erro
 	return ex, Context{Section: section, Preceding: preceding}, nil
 }
 
+// Dir is where a section's exercise files live. Callers need it to resolve the
+// repository-relative links inside an exercise body, such as figure images.
+func (r *Repository) Dir(sectionID string) string {
+	return filepath.Join(r.Root, "content", VolumeDir(sectionID), "exercises", sectionID)
+}
+
 func (r *Repository) List(sectionID string) ([]int, error) {
-	dir := filepath.Join(r.Root, "content", VolumeDir(sectionID), "exercises", sectionID)
+	dir := r.Dir(sectionID)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("list exercises in %s: %w", dir, err)
@@ -134,8 +143,95 @@ func (r *Repository) List(sectionID string) ([]int, error) {
 	return numbers, nil
 }
 
+// Metadata reads the frontmatter of every exercise in a section, without the
+// section and preceding context that Load gathers. Index pages want the ratings
+// and nothing else, and reading the whole section context once per exercise to
+// print a table would be several megabytes of wasted work per section.
+func (r *Repository) Metadata(sectionID string) ([]Exercise, error) {
+	numbers, err := r.List(sectionID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Exercise, 0, len(numbers))
+	for _, number := range numbers {
+		path, err := r.exercisePath(sectionID, number)
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read exercise: %w", err)
+		}
+		meta, body := parseFrontmatter(string(data))
+		out = append(out, Exercise{
+			SectionID:    stringValue(meta, "section", sectionID),
+			Number:       intValue(meta, "exercise", number),
+			SectionTitle: stringValue(meta, "section_title", ""),
+			Chapter:      intValue(meta, "chapter", 0),
+			ChapterTitle: stringValue(meta, "chapter_title", ""),
+			Volume:       intValue(meta, "volume", volumeNumber(VolumeDir(sectionID))),
+			BookPages:    stringValue(meta, "book_pages", ""),
+			Rating:       stringValue(meta, "rating", ""),
+			Category:     stringValue(meta, "category", ""),
+			Recommended:  boolValue(meta, "recommended"),
+			Body:         strings.TrimSpace(body),
+			SourcePath:   path,
+		})
+	}
+	return out, nil
+}
+
+// Sections lists every section the repository holds exercises for, in dotted
+// numeric order. The volume directories are a fascicle layout rather than a book
+// layout, so a caller that wants book volumes has to map the ids itself.
+func (r *Repository) Sections() ([]string, error) {
+	volumes, err := filepath.Glob(filepath.Join(r.Root, "content", "vol*", "exercises"))
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool)
+	for _, dir := range volumes {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil, fmt.Errorf("list sections in %s: %w", dir, err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() && sectionName.MatchString(entry.Name()) {
+				seen[entry.Name()] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Slice(out, func(i, j int) bool { return CompareSections(out[i], out[j]) < 0 })
+	return out, nil
+}
+
+// CompareSections orders two section identifiers by their dotted parts, so
+// 7.2.1.1 comes before 7.2.2 and 1.2.9 before 1.2.10. String order gets both
+// wrong.
+func CompareSections(a, b string) int {
+	left, right := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(left) && i < len(right); i++ {
+		x, errLeft := strconv.Atoi(left[i])
+		y, errRight := strconv.Atoi(right[i])
+		if errLeft != nil || errRight != nil {
+			if order := strings.Compare(left[i], right[i]); order != 0 {
+				return order
+			}
+			continue
+		}
+		if x != y {
+			return x - y
+		}
+	}
+	return len(left) - len(right)
+}
+
 func (r *Repository) exercisePath(sectionID string, number int) (string, error) {
-	dir := filepath.Join(r.Root, "content", VolumeDir(sectionID), "exercises", sectionID)
+	dir := r.Dir(sectionID)
 	plain := filepath.Join(dir, fmt.Sprintf("%02d.md", number))
 	if regularFile(plain) {
 		return plain, nil

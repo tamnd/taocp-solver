@@ -24,6 +24,7 @@ type Config struct {
 	APIKey         string
 	Model          string
 	TAOCPRoot      string
+	BrainRoot      string
 	OutputRoot     string
 	Timeout        time.Duration
 	MaxCorrections int
@@ -39,6 +40,7 @@ func FromEnv() Config {
 		APIKey:         firstEnv("TAOCP_SOLVER_API_KEY", "OPENAI_API_KEY"),
 		Model:          env("TAOCP_SOLVER_MODEL", DefaultModel),
 		TAOCPRoot:      env("TAOCP_SOLVER_SOURCE", filepath.Join(home, "github", "tamnd", "taocp")),
+		BrainRoot:      env("TAOCP_SOLVER_BRAIN", filepath.Join(home, "github", "tamnd", "brain")),
 		OutputRoot:     env("TAOCP_SOLVER_OUTPUT", filepath.Join(home, "data", "taocp-solver")),
 		Timeout:        envDuration("TAOCP_SOLVER_TIMEOUT", 30*time.Minute),
 		MaxCorrections: envInt("TAOCP_SOLVER_MAX_CORRECTIONS", DefaultMaxCorrections),

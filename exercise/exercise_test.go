@@ -57,6 +57,67 @@ func TestVolumeDir(t *testing.T) {
 	}
 }
 
+// Metadata is what the index pages read, so it must not drag in the section and
+// preceding context that Load gathers for a prompt.
+func TestMetadataReadsFrontmatterOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "content", "vol1", "exercises", "1.1")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(dir, "01.md"), "---\nsection: 1.1\nexercise: 1\nrating: M10\ncategory: math-simple\nrecommended: true\n---\nFirst body.")
+	mustWrite(t, filepath.Join(dir, "02.md"), "---\nsection: 1.1\nexercise: 2\nrating: \"20\"\n---\nSecond body.")
+
+	items, err := NewRepository(root).Metadata("1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].Rating != "M10" || items[0].Category != "math-simple" || !items[0].Recommended {
+		t.Errorf("first item = %+v", items[0])
+	}
+	if items[1].Number != 2 || items[1].Recommended {
+		t.Errorf("second item = %+v", items[1])
+	}
+}
+
+func TestSectionsAcrossVolumeDirectories(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for _, dir := range []string{"vol1/exercises/1.2.9", "vol1/exercises/1.2.10", "vol4a/exercises/7.2.1.1", "vol4b/exercises/7.2.2", "vol1/exercises/notes"} {
+		if err := os.MkdirAll(filepath.Join(root, "content", dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sections, err := NewRepository(root).Sections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"1.2.9", "1.2.10", "7.2.1.1", "7.2.2"}
+	if !reflect.DeepEqual(sections, want) {
+		t.Fatalf("sections = %v, want %v", sections, want)
+	}
+}
+
+func TestCompareSectionsCountsRatherThanSpells(t *testing.T) {
+	t.Parallel()
+	if CompareSections("1.2.9", "1.2.10") >= 0 {
+		t.Error("1.2.9 must come before 1.2.10")
+	}
+	if CompareSections("7.2.1.1", "7.2.2") >= 0 {
+		t.Error("7.2.1.1 must come before 7.2.2")
+	}
+	if CompareSections("7.2.2", "7.2.2.1") >= 0 {
+		t.Error("a section must come before its subsections")
+	}
+	if CompareSections("1.1", "1.1") != 0 {
+		t.Error("a section must equal itself")
+	}
+}
+
 func TestParseReference(t *testing.T) {
 	t.Parallel()
 	section, number, err := ParseReference("1.2.6.10")
