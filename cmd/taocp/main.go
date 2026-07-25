@@ -217,6 +217,9 @@ type commonFlags struct {
 	timeoutText string
 	routesFile  string
 	routeNames  []string
+	// flags is kept so the run can tell an explicit --base-url from the same
+	// value arriving out of the environment.
+	flags *pflag.FlagSet
 }
 
 // routing reports whether the caller asked for the route registry. A bare
@@ -227,7 +230,7 @@ func (c *commonFlags) routing() bool {
 }
 
 func bindCommon(fs *pflag.FlagSet, defaults config.Config) *commonFlags {
-	c := &commonFlags{config: defaults, timeoutText: defaults.Timeout.String()}
+	c := &commonFlags{config: defaults, timeoutText: defaults.Timeout.String(), flags: fs}
 	fs.StringVar(&c.routesFile, "routes", "", "route file to run against; enables failover across routes")
 	fs.StringSliceVar(&c.routeNames, "route", nil, "restrict the run to these routes, tried in the order given")
 	fs.StringVar(&c.config.BaseURL, "base-url", defaults.BaseURL, "bridge or proxy base URL")
@@ -267,6 +270,15 @@ func (c *commonFlags) pool(stderr io.Writer) (*route.Pool, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+	// An explicit --base-url alongside a route file is a deliberate instruction
+	// to try that endpoint first, so it becomes a rank 0 route rather than being
+	// silently ignored. The same value arriving from the environment is not,
+	// which is why this reads the flag rather than the config.
+	if c.flags != nil && c.flags.Changed("base-url") && strings.TrimSpace(c.config.BaseURL) != "" {
+		adHoc := route.AdHoc(c.config.BaseURL, c.config.Model, "", "")
+		adHoc.APIKey = c.config.APIKey
+		registry.Routes = append([]route.Route{adHoc}, registry.Routes...)
 	}
 	// Each route names its own model, so --model does not reach the wire here.
 	// Labelling the run with the first route's model keeps the progress lines

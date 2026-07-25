@@ -105,7 +105,7 @@ taocp solve 1.2.6 10 --routes ~/.config/taocp/routes.json
 taocp solve 1.2.6 10 --routes ~/.config/taocp/routes.json --route zen-free-nemotron
 ```
 
-Passing either flag is what enables failover. Without them a run uses `--base-url` exactly as before, so no existing command line changes behaviour. `--route` restricts a run to the named routes and tries them in the order given, which overrides the ranks in the file. Naming a route without naming a file falls back to `$TAOCP_ROUTES`, then `~/.config/taocp/routes.json`, then a built-in order.
+Passing either flag is what enables failover. Without them a run uses `--base-url` exactly as before, so no existing command line changes behaviour. `--route` restricts a run to the named routes and tries them in the order given, which overrides the ranks in the file. Naming a route without naming a file falls back to `$TAOCP_ROUTES`, then `~/.config/taocp/routes.json`, then a built-in order. A `--base-url` given explicitly alongside a route file is tried first, ahead of every configured route, because typing it is an instruction rather than a default. The same value arriving from the environment is not.
 
 Each route names its own wire format, endpoint, model, and the environment variable holding its key, so a route file carries no secrets and can be shared or committed.
 

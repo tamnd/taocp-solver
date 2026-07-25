@@ -223,6 +223,37 @@ func TestLoadOrDefaultFailsLoudlyOnANamedFile(t *testing.T) {
 	}
 }
 
+// A route file is meant to be shareable, so a key given on the command line
+// must not end up written into one.
+func TestALiteralKeyIsNotWrittenToTheRouteFile(t *testing.T) {
+	t.Parallel()
+	value := AdHoc("http://localhost:8790/v1", "gpt-5.6-luna", "", "")
+	value.APIKey = "sk-secret"
+	path := filepath.Join(t.TempDir(), "routes.json")
+	if err := (Registry{Routes: []Route{value}}).Write(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "sk-secret") {
+		t.Fatalf("route file carries the key: %s", raw)
+	}
+}
+
+func TestALiteralKeyBeatsTheEnvironment(t *testing.T) {
+	t.Setenv("TAOCP_TEST_KEY", "from-env")
+	value := Route{Name: "a", Wire: WireChat, BaseURL: "http://x/v1", Model: "m", APIKeyEnv: "TAOCP_TEST_KEY"}
+	if got := value.Key(); got != "from-env" {
+		t.Errorf("key = %q", got)
+	}
+	value.APIKey = "literal"
+	if got := value.Key(); got != "literal" {
+		t.Errorf("key = %q, want the literal one", got)
+	}
+}
+
 func TestAdHocRouteOutranksEverything(t *testing.T) {
 	t.Parallel()
 	value := AdHoc("http://localhost:8790/v1", "gpt-5.6-luna", "TAOCP_SOLVER_API_KEY", "high")

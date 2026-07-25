@@ -40,6 +40,10 @@ type Route struct {
 	// APIKeyEnv names the environment variable holding the key, so a route
 	// file can be committed or shared without carrying a secret.
 	APIKeyEnv string `json:"api_key_env,omitempty"`
+	// APIKey is a literal key for a route built on the command line. It never
+	// round trips through a route file, because a file people are meant to
+	// share would leak it the first time someone pasted one.
+	APIKey string `json:"-"`
 	// Auth is the credential path for WireCodex. Empty means the default.
 	Auth            string   `json:"auth,omitempty"`
 	Effort          string   `json:"effort,omitempty"`
@@ -353,10 +357,7 @@ func (r Route) Client(timeout time.Duration, maxRetries int) (api.Completer, err
 			MaxRetries: maxRetries, Effort: r.Effort,
 		}, nil
 	}
-	key := ""
-	if r.APIKeyEnv != "" {
-		key = strings.TrimSpace(os.Getenv(r.APIKeyEnv))
-	}
+	key := r.Key()
 	if r.Wire == WireResponses {
 		return &api.Client{
 			URL: r.endpoint("/responses"), APIKey: key, HTTPClient: httpClient,
@@ -370,6 +371,18 @@ func (r Route) Client(timeout time.Duration, maxRetries int) (api.Completer, err
 }
 
 const userAgent = "taocp-router"
+
+// Key is the credential to send, preferring a literal one from the command line
+// over the environment variable a route file names.
+func (r Route) Key() string {
+	if key := strings.TrimSpace(r.APIKey); key != "" {
+		return key
+	}
+	if r.APIKeyEnv != "" {
+		return strings.TrimSpace(os.Getenv(r.APIKeyEnv))
+	}
+	return ""
+}
 
 // endpoint joins the base URL to a path, tolerating a base that already ends
 // at /v1 and one that stops at the server root.
