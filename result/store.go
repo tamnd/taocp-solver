@@ -18,6 +18,7 @@ type Attempt struct {
 	Iteration    int          `json:"iteration"`
 	ResponseID   string       `json:"response_id,omitempty"`
 	Model        string       `json:"model,omitempty"`
+	Route        string       `json:"route,omitempty"`
 	CurrentRun   bool         `json:"current_run"`
 	InputTokens  int          `json:"input_tokens,omitempty"`
 	OutputTokens int          `json:"output_tokens,omitempty"`
@@ -69,6 +70,11 @@ type MetricSet struct {
 type Metrics struct {
 	CurrentRun MetricSet `json:"current_run"`
 	Cumulative MetricSet `json:"cumulative"`
+	// ByRoute breaks the current run down by the endpoint that served each
+	// call. It is absent when every call went to the same place, and present
+	// the moment a run failed over, because a mixed-route solution priced
+	// entirely at the first route's rate would be a fiction.
+	ByRoute map[string]MetricSet `json:"by_route,omitempty"`
 }
 
 type Result struct {
@@ -93,10 +99,24 @@ type Result struct {
 
 func BuildMetrics(attempts []Attempt) Metrics {
 	var metrics Metrics
+	byRoute := map[string]*MetricSet{}
 	for i := range attempts {
 		addAttempt(&metrics.Cumulative, attempts[i])
-		if attempts[i].CurrentRun {
-			addAttempt(&metrics.CurrentRun, attempts[i])
+		if !attempts[i].CurrentRun {
+			continue
+		}
+		addAttempt(&metrics.CurrentRun, attempts[i])
+		if name := attempts[i].Route; name != "" {
+			if byRoute[name] == nil {
+				byRoute[name] = &MetricSet{}
+			}
+			addAttempt(byRoute[name], attempts[i])
+		}
+	}
+	if len(byRoute) > 1 {
+		metrics.ByRoute = make(map[string]MetricSet, len(byRoute))
+		for name, set := range byRoute {
+			metrics.ByRoute[name] = *set
 		}
 	}
 	return metrics

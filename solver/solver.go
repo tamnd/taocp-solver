@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/tamnd/taocp-solver/api"
@@ -241,7 +243,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 		Verdict:     verdict,
 		Verified:    verdict == "PASS",
 		Evaluation:  evaluation,
-		Model:       options.Model,
+		Model:       servedModels(attempts, options.Model),
 		SolveTime:   time.Since(started).Round(time.Millisecond),
 		CompletedAt: time.Now().UTC(),
 		Attempts:    attempts,
@@ -327,6 +329,23 @@ func (e *Engine) log(format string, args ...any) {
 	}
 }
 
+// servedModels names the models that actually answered. A run that failed over
+// onto a second route did not use the model it was asked for, and recording the
+// request rather than the answer would misattribute the work.
+func servedModels(attempts []result.Attempt, requested string) string {
+	var out []string
+	for _, value := range attempts {
+		if !value.CurrentRun || value.Model == "" || slices.Contains(out, value.Model) {
+			continue
+		}
+		out = append(out, value.Model)
+	}
+	if len(out) == 0 {
+		return requested
+	}
+	return strings.Join(out, ", ")
+}
+
 func attempt(phase string, iteration int, requestedModel string, response api.Response) result.Attempt {
 	usage := response.Usage
 	if usage.InputTokens == 0 && usage.OutputTokens == 0 {
@@ -338,15 +357,23 @@ func attempt(phase string, iteration int, requestedModel string, response api.Re
 	if model == "" {
 		model = requestedModel
 	}
+	// A route may serve a model with no rate card of its own, in which case
+	// the route names the card that applies. Pricing the answer at whatever
+	// slug the provider echoed back would be a guess.
+	priced := response.PricingModel
+	if priced == "" {
+		priced = model
+	}
 	return result.Attempt{
 		Phase:        phase,
 		Iteration:    iteration,
 		ResponseID:   response.ID,
 		Model:        model,
+		Route:        response.Route,
 		CurrentRun:   true,
 		InputTokens:  response.InputTokens,
 		OutputTokens: response.OutputTokens,
 		Usage:        usage,
-		ListCost:     pricing.Calculate(model, usage),
+		ListCost:     pricing.Calculate(priced, usage),
 	}
 }

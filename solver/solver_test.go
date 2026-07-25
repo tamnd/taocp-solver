@@ -176,6 +176,58 @@ func TestFastModeUsesOneCallAndSkipsVerification(t *testing.T) {
 	}
 }
 
+// A run that failed over records what answered, not what it asked for.
+func TestSolveRecordsTheModelsThatAnswered(t *testing.T) {
+	t.Parallel()
+	root := fixtureRepository(t)
+	client := &substituteCompleter{
+		texts:  []string{"Reference.", "Solution.", passingTruthReview, "TRUTH: TRUE\nVERDICT: PASS"},
+		models: []string{"nemotron-3-ultra-free", "gpt-5.6-luna"},
+	}
+	engine := &Engine{
+		Repository: exercise.NewRepository(root), Client: client,
+		Store: result.Store{Root: filepath.Join(t.TempDir(), "out")},
+	}
+	value, err := engine.Solve(context.Background(), "1.1", 1,
+		Options{Model: "asked-for", Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.Model != "nemotron-3-ultra-free, gpt-5.6-luna" {
+		t.Errorf("model = %q, want both models that answered", value.Model)
+	}
+}
+
+func TestSolveFallsBackToTheRequestedModel(t *testing.T) {
+	t.Parallel()
+	if got := servedModels(nil, "asked-for"); got != "asked-for" {
+		t.Errorf("model = %q", got)
+	}
+}
+
+// substituteCompleter answers with a different model each time, the way a route
+// pool does when it fails over mid-run.
+type substituteCompleter struct {
+	mu     sync.Mutex
+	texts  []string
+	models []string
+	calls  int
+}
+
+func (s *substituteCompleter) Complete(_ context.Context, request api.Request) (api.Response, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	model := request.Model
+	text := s.texts[min(s.calls, len(s.texts)-1)]
+	s.calls++
+	if len(s.models) > 0 {
+		// Once the substitutes run out the last one keeps answering, the way a
+		// pool stays on the route it failed over to.
+		model = s.models[min(s.calls-1, len(s.models)-1)]
+	}
+	return api.Response{ID: "id", Model: model, Text: text}, nil
+}
+
 func fixtureRepository(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

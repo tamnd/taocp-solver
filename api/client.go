@@ -27,8 +27,15 @@ type Request struct {
 }
 
 type Response struct {
-	ID           string `json:"id"`
-	Model        string `json:"model"`
+	ID    string `json:"id"`
+	Model string `json:"model"`
+	// Route names the endpoint that served this call, when the caller was
+	// choosing between several. A solution assembled from two routes has to
+	// be able to say which one answered each request.
+	Route string `json:"route,omitempty"`
+	// PricingModel overrides Model when applying a rate card, for a route
+	// whose served model has no published price of its own.
+	PricingModel string `json:"pricing_model,omitempty"`
 	Text         string `json:"text"`
 	InputTokens  int    `json:"input_tokens"`
 	OutputTokens int    `json:"output_tokens"`
