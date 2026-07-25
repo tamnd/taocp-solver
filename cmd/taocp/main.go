@@ -843,6 +843,17 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	if len(fs.Args()) > 0 {
 		return errors.New("run takes no positional arguments; use --section or --volume")
 	}
+	// An unattended run wants failover more than any other command, and the
+	// host it runs on has a route file rather than a command line. Picking it
+	// up without being told to is the difference between a deployment that
+	// works from an environment file and one that needs a wrapper script.
+	if !common.routing() {
+		if path := route.DefaultPath(); path != "" {
+			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+				common.routesFile = path
+			}
+		}
+	}
 	// A dry run only reads directories, so it must not demand a working
 	// endpoint. Everything else does.
 	if err := common.finish(!*dryRun); err != nil {

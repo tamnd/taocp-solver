@@ -32,6 +32,7 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - SIGINT and SIGTERM stop the queue, let the solves already in flight finish for up to `--drain`, force a final commit, and exit zero.
 - The generated commit messages are the ones the content repository's history already has, down to the per-section file counts, so replacing the shell scripts does not show up as a change of hands.
 - Every git command runs under an advisory lock, so a second runner or a leftover cron job on the same host cannot interleave with it.
+- A run takes the host's route file from `TAOCP_ROUTES` or the default path without being passed a flag, so a machine configured by an environment file gets failover instead of demanding a single `--base-url`.
 - `--dry-run` prints the queue and touches nothing, and does not need a working endpoint to do it.
 - `make dist` cross-compiles a static Linux binary and `make deploy HOST=...` installs it with a systemd user unit, because a run host is not required to have a Go toolchain.
 

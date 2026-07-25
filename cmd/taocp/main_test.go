@@ -421,3 +421,28 @@ func TestRunRejectsAPositionalSection(t *testing.T) {
 		t.Fatalf("err = %v, want a complaint about the positional section", err)
 	}
 }
+
+func TestRunPicksUpTheRouteFileTheHostAlreadyHas(t *testing.T) {
+	// Not parallel: the point of the test is what the environment says.
+	brain, source, output := publishTree(t)
+	routes := filepath.Join(t.TempDir(), "routes.json")
+	if err := route.Default().Write(routes); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TAOCP_ROUTES", routes)
+
+	// Nothing is missing in this tree, so the run ends before it needs a model.
+	// What is being checked is that it started at all: an unattended host
+	// configures itself with a route file and an environment, never a flag.
+	var stdout, stderr bytes.Buffer
+	flags := []string{"run", "--brain", brain, "--source", source, "--output", output, "--no-commit"}
+	if err := run(context.Background(), flags, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr.String(), "base URL") {
+		t.Fatalf("the run asked for a base URL despite a route file: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "routing across") {
+		t.Fatalf("the run did not pick up the route file:\n%s", stderr.String())
+	}
+}
