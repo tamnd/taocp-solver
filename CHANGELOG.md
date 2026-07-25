@@ -4,6 +4,12 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 
 ## [Unreleased]
 
+### Changed
+
+- The matrix values a free-route execution at the paid token rate for the same underlying model instead of recording it as costing zero. A free promotion is a billing state, not a measure of what the work is worth.
+- Reports carry the rate card and separate uncached-input, cached-input, cache-write, and output components, so an aggregate total can be checked against its parts.
+- A model with no published paid per-token rate reports its cost as unavailable rather than zero.
+
 ## [0.1.0] - 2026-07-20
 
 ### Added

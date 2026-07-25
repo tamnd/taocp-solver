@@ -39,27 +39,39 @@ func TestLookupAllGPT56Tiers(t *testing.T) {
 	}
 }
 
-func TestPublishedFreePricesAreNotMissingPrices(t *testing.T) {
+func TestLookupPrefersExactMiniModel(t *testing.T) {
 	t.Parallel()
-	for _, model := range []string{"deepseek-v4-flash-free", "mimo-v2.5-free", "nemotron-3-ultra-free", "north-mini-code-free"} {
-		card, ok := PublishedListPrice(model)
-		if !ok || !card.Available || card.Provider != "OpenCode Zen" || card.Currency != "USD" || card.InputPerMillion != 0 || card.OutputPerMillion != 0 {
-			t.Errorf("PublishedListPrice(%q) = %+v, %v", model, card, ok)
-		}
-		cost := Calculate(model, api.Usage{InputTokens: 100, OutputTokens: 50})
-		if !cost.Available || cost.TotalUSD != 0 || cost.Source != ZenSourceURL {
-			t.Errorf("Calculate(%q) = %+v", model, cost)
-		}
+	rates, ok := Lookup("gpt-5.4-mini")
+	if !ok || rates.Model != "gpt-5.4-mini" || rates.InputPerMillion != 0.75 || rates.LongContextThreshold != 0 {
+		t.Fatalf("Lookup(gpt-5.4-mini) = %+v, %v", rates, ok)
 	}
 }
 
-func TestHy3PreservesUpstreamCurrencyAndPromotion(t *testing.T) {
+func TestPublishedPaidEquivalentPrices(t *testing.T) {
+	t.Parallel()
+	for _, model := range []string{"deepseek-v4-flash-free", "mimo-v2.5-free", "nemotron-3-ultra-free"} {
+		card, ok := PublishedListPrice(model)
+		if !ok || !card.Available || card.Currency != "USD" || card.InputPerMillion == 0 || card.OutputPerMillion == 0 {
+			t.Errorf("PublishedListPrice(%q) = %+v, %v", model, card, ok)
+		}
+		cost := Calculate(model, api.Usage{InputTokens: 100, OutputTokens: 50})
+		if !cost.Available || cost.TotalUSD == 0 || cost.Source == ZenSourceURL {
+			t.Errorf("Calculate(%q) = %+v", model, cost)
+		}
+	}
+	card, ok := PublishedListPrice("north-mini-code-free")
+	if !ok || card.Available || card.Source != CohereNorthSourceURL {
+		t.Fatalf("North Mini Code price = %+v, %v", card, ok)
+	}
+}
+
+func TestHy3UsesPaidUSDRoute(t *testing.T) {
 	t.Parallel()
 	card, ok := PublishedListPrice("hy3-free")
-	if !ok || !card.Available || card.Currency != "CNY" || card.PromotionEnds != "2026-07-22" || card.PostPromotionInput != 1 || card.PostPromotionCachedInput != 0.25 || card.PostPromotionOutput != 4 {
+	if !ok || !card.Available || card.Currency != "USD" || card.InputPerMillion != 0.20 || card.CachedInputPerMillion != 0.05 || card.OutputPerMillion != 0.80 {
 		t.Fatalf("Hy3 price = %+v, %v", card, ok)
 	}
-	if cost := Calculate("hy3-free", api.Usage{InputTokens: 100}); cost.Available {
-		t.Fatalf("Hy3 USD cost should be unavailable, got %+v", cost)
+	if cost := Calculate("hy3-free", api.Usage{InputTokens: 100}); !cost.Available || cost.TotalUSD == 0 {
+		t.Fatalf("Hy3 paid equivalent = %+v", cost)
 	}
 }

@@ -37,7 +37,9 @@ Limited-time Zen routes refuse advertised retry delays over 60 seconds. A daily 
 
 Every request preserves input, uncached input, cached input, cache write, output, reasoning output, and total tokens. Reasoning tokens are a subset of output tokens and are not added twice.
 
-Generation and evaluation are reported separately. Official GPT rows apply published standard API rates to provider-reported usage. Four Zen free routes use Zen's published zero list price. Hy3 uses Tencent Cloud's upstream promotion and announced post-promotion CNY rates because Zen does not publish a Hy3 price. Local rows have no API list price, and the report does not invent electricity or hardware cost.
+Generation and evaluation are reported separately. Official GPT rows apply published standard API rates to provider-reported usage. Zen executions are valued at paid per-token rates for the same underlying model. DeepSeek V4 Flash and MiMo-V2.5 use their creators' direct rates. Hy3 and Nemotron 3 Ultra use published paid inference-route rates. Cohere publishes North Mini Code as free for both trial and production keys and publishes no paid per-token rate, so the report marks that value unavailable. Local rows have no API list price, and the report does not invent electricity or hardware cost.
+
+Every generated report includes the paid rate card and separate uncached-input, cached-input, cache-write, and output cost components. An unpublished component is shown as unavailable, not silently treated as zero.
 
 Each case JSON stores the complete published price card and source URL. The aggregate Markdown report is a compact view of the same data.
 

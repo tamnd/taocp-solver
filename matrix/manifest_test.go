@@ -25,8 +25,8 @@ func TestDefaultManifestIsStratifiedAndPriced(t *testing.T) {
 	}
 	for _, profile := range manifest.Models[:5] {
 		card, ok := pricing.PublishedListPrice(profile.Model)
-		if !ok || !card.Available {
-			t.Errorf("free profile %q has no published price", profile.Model)
+		if !ok || card.Source == "" {
+			t.Errorf("free profile %q has no price provenance", profile.Model)
 		}
 		if profile.MaxRetries != nil || profile.MaxRetryDelaySeconds != 60 {
 			t.Errorf("free profile %q retry policy = retries %v, max delay %d", profile.Model, profile.MaxRetries, profile.MaxRetryDelaySeconds)
@@ -44,13 +44,13 @@ func TestDefaultManifestIsStratifiedAndPriced(t *testing.T) {
 func TestProfileCostDistinguishesFreeLocalAndOfficial(t *testing.T) {
 	t.Parallel()
 	free := ModelProfile{Model: "deepseek-v4-flash-free", CostBasis: "free"}
-	cost, card, note := profileCost(free, result.MetricSet{})
-	if cost != 0 || !card.Available || card.Provider != "OpenCode Zen" || note == "" {
-		t.Fatalf("free cost = %f, %+v, %q", cost, card, note)
+	cost, card, note := profileCost(free, result.MetricSet{Tokens: result.TokenMetrics{InputTokens: 1000000}})
+	if !cost.Available || cost.TotalUSD != 0.14 || !card.Available || card.Provider != "DeepSeek" || note == "" {
+		t.Fatalf("free cost = %+v, %+v, %q", cost, card, note)
 	}
 	hy3 := ModelProfile{Model: "hy3-free", CostBasis: "free"}
 	_, card, _ = profileCost(hy3, result.MetricSet{})
-	if card.Currency != "CNY" || card.PostPromotionOutput != 4 {
+	if card.Currency != "USD" || card.OutputPerMillion != 0.80 {
 		t.Fatalf("Hy3 card = %+v", card)
 	}
 	local := ModelProfile{Model: "qwen3:8b", CostBasis: "local"}
@@ -59,17 +59,17 @@ func TestProfileCostDistinguishesFreeLocalAndOfficial(t *testing.T) {
 		t.Fatalf("local price = %+v, %q", card, note)
 	}
 	official := ModelProfile{Model: "gpt-5.4-mini", CostBasis: "official-list"}
-	metrics := result.MetricSet{ListCost: pricing.Cost{Available: true, TotalUSD: 1.25}}
+	metrics := result.MetricSet{Tokens: result.TokenMetrics{InputTokens: 1000000}}
 	cost, card, _ = profileCost(official, metrics)
-	if cost != 1.25 || card.Provider != "OpenAI" {
-		t.Fatalf("official cost = %f, %+v", cost, card)
+	if cost.TotalUSD != 0.75 || card.Provider != "OpenAI" {
+		t.Fatalf("official cost = %+v, %+v", cost, card)
 	}
 }
 
 func TestPublishedPriceCanBeRecordedBeforeProviderCall(t *testing.T) {
 	t.Parallel()
 	_, card, note := profileCost(ModelProfile{Model: "north-mini-code-free", CostBasis: "free"}, result.MetricSet{})
-	if !card.Available || card.Source != pricing.ZenSourceURL || note == "" {
+	if card.Available || card.Source != pricing.CohereNorthSourceURL || note == "" {
 		t.Fatalf("pre-call price = %+v, %q", card, note)
 	}
 }
