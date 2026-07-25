@@ -617,7 +617,7 @@ func runBridge(ctx context.Context, args []string, stdout, stderr io.Writer) err
 
 	auth := &codex.Auth{
 		Path: *authPath,
-		Logf: func(format string, args ...any) { fmt.Fprintf(stderr, format+"\n", args...) },
+		Logf: func(format string, args ...any) { _, _ = fmt.Fprintf(stderr, format+"\n", args...) },
 	}
 	// Read the credential before binding the port. Failing here with a clear
 	// message beats a listener that answers every request with the same 502.
@@ -634,17 +634,17 @@ func runBridge(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		},
 		APIKey: *apiKey,
 		Model:  *model,
-		Logf:   func(format string, args ...any) { fmt.Fprintf(stderr, format+"\n", args...) },
+		Logf:   func(format string, args ...any) { _, _ = fmt.Fprintf(stderr, format+"\n", args...) },
 	}
 	expiry := "unknown"
 	if !token.ExpiresAt.IsZero() {
 		expiry = token.ExpiresAt.Local().Format(time.RFC3339)
 	}
 	return bridge.Serve(ctx, *host, *port, func(address string) {
-		fmt.Fprintf(stdout, "taocp bridge on http://%s, plan %s, token expires %s, default model %s\n",
+		_, _ = fmt.Fprintf(stdout, "taocp bridge on http://%s, plan %s, token expires %s, default model %s\n",
 			address, orUnknown(token.PlanType), expiry, *model)
 		if *apiKey == "" {
-			fmt.Fprintln(stdout, "no --api-key set, so any local process can spend this plan's quota")
+			_, _ = fmt.Fprintln(stdout, "no --api-key set, so any local process can spend this plan's quota")
 		}
 	})
 }
