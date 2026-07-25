@@ -277,7 +277,11 @@ func AdHoc(baseURL, model, apiKeyEnv, effort string) Route {
 // the ones that have carried a complete slow-mode solve to a passing verdict.
 // A route earns promotion the same way.
 func Default() Registry {
-	zen := env("TAOCP_ZEN_PROXY_URL", "http://127.0.0.1:8788/v1")
+	// The upstream endpoint rather than a local proxy. Defaulting to a proxy meant
+	// every zen route was dead out of the box, on a machine where nothing happened
+	// to be listening on that port, for no gain. Set the variable to put a trace
+	// proxy back in front.
+	zen := env("TAOCP_ZEN_PROXY_URL", "https://opencode.ai/zen/v1")
 	local := env("TAOCP_LOCAL_PROXY_URL", "http://127.0.0.1:8789/v1")
 	web2 := env("TAOCP_WEB_S2_URL", "")
 	web3 := env("TAOCP_WEB_S3_URL", "")

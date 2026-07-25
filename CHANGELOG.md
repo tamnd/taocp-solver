@@ -23,6 +23,7 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 
 ### Changed
 
+- The zen routes default to the upstream endpoint instead of a local tracing proxy. Every one of them was dead out of the box on a machine with nothing listening on that port, which is a poor first impression and no gain. `TAOCP_ZEN_PROXY_URL` still puts a proxy back in front.
 - The matrix values a free-route execution at the paid token rate for the same underlying model instead of recording it as costing zero. A free promotion is a billing state, not a measure of what the work is worth.
 - Reports carry the rate card and separate uncached-input, cached-input, cache-write, and output components, so an aggregate total can be checked against its parts.
 - A model with no published paid per-token rate reports its cost as unavailable rather than zero.
