@@ -1,0 +1,23 @@
+[Unit]
+Description=TAOCP solver, unattended run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# doctor exits non-zero when nothing can answer, which keeps the runner from
+# starting a campaign it cannot make progress on.
+ExecStartPre=%h/bin/taocp doctor
+ExecStart=%h/bin/taocp run --parallel 2 --mode slow --candidates 3
+EnvironmentFile=%h/.config/taocp/run.env
+Restart=always
+RestartSec=60
+# A slow solve should not be killed mid-proof by a stop, and the runner drains
+# on its own once it has the signal.
+TimeoutStopSec=600
+KillSignal=SIGTERM
+StandardOutput=append:%h/.local/share/taocp/run.log
+StandardError=append:%h/.local/share/taocp/run.log
+
+[Install]
+WantedBy=default.target

@@ -30,6 +30,7 @@ import (
 	"github.com/tamnd/taocp-solver/publish"
 	"github.com/tamnd/taocp-solver/result"
 	"github.com/tamnd/taocp-solver/route"
+	"github.com/tamnd/taocp-solver/runner"
 	"github.com/tamnd/taocp-solver/solver"
 )
 
@@ -76,6 +77,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runPublish(args[1:], stdout, stderr)
 	case "coverage":
 		return runCoverage(args[1:], stdout, stderr)
+	case "run":
+		return runRun(ctx, args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(ctx, args[1:], stdout, stderr)
 	default:
@@ -808,6 +811,114 @@ func runPublish(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// runRun is the unattended campaign: work the coverage queue until it is empty,
+// publishing each proof as it lands and committing the content repository on a
+// timer. It is meant to be started in a screen session or under systemd and
+// left alone for days, so everything it does is restartable.
+func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	defaults := config.FromEnv()
+	fs := pflag.NewFlagSet("run", pflag.ContinueOnError)
+	fs.SetOutput(stderr)
+	common := bindCommon(fs, defaults)
+	brain := fs.String("brain", defaults.BrainRoot, "brain repository to publish and commit into")
+	volume := fs.String("volume", "", "restrict the queue to one volume, as 3 or vol4a")
+	sections := fs.StringArray("section", nil, "restrict the queue to these sections; repeatable")
+	limit := fs.Int("limit", 0, "stop after this many exercises")
+	mode := fs.String("mode", string(solver.ModeSlow), "solve mode: fast or slow")
+	retryEmpty := fs.Bool("retry-empty", false, "queue exercises whose stored result has no solution")
+	noPublish := fs.Bool("no-publish", false, "solve and store, but do not render into the content tree")
+	noCommit := fs.Bool("no-commit", false, "publish, but leave the content repository uncommitted")
+	dryRun := fs.Bool("dry-run", false, "print the queue and exit without writing anything")
+	asJSON := fs.Bool("json", false, "write the log and the summary as JSON")
+	commitInterval := fs.String("commit-interval", runner.DefaultCommitInterval.String(), "how often to commit the content repository")
+	maxSleep := fs.String("max-sleep", runner.DefaultMaxSleep.String(), "longest wait when every route is cold")
+	drain := fs.String("drain", runner.DefaultDrain.String(), "how long to let in-flight solves finish after a stop signal")
+	lock := fs.String("lock", runner.DefaultLock, "advisory lock the content repository's git commands run under")
+	fs.IntVar(&common.config.Parallel, "parallel", defaults.Parallel, "exercises solved at once")
+	fs.IntVar(&common.config.Candidates, "candidates", defaults.Candidates, "independent solution candidates per exercise")
+	fs.IntVar(&common.config.MaxCorrections, "max-corrections", defaults.MaxCorrections, "correction passes per exercise")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(fs.Args()) > 0 {
+		return errors.New("run takes no positional arguments; use --section or --volume")
+	}
+	// An unattended run wants failover more than any other command, and the
+	// host it runs on has a route file rather than a command line. Picking it
+	// up without being told to is the difference between a deployment that
+	// works from an environment file and one that needs a wrapper script.
+	if !common.routing() {
+		if path := route.DefaultPath(); path != "" {
+			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+				common.routesFile = path
+			}
+		}
+	}
+	// A dry run only reads directories, so it must not demand a working
+	// endpoint. Everything else does.
+	if err := common.finish(!*dryRun); err != nil {
+		return err
+	}
+	solveMode, err := parseMode(*mode)
+	if err != nil {
+		return err
+	}
+	options := runner.Options{
+		Source: common.config.TAOCPRoot, Output: common.config.OutputRoot, Brain: *brain,
+		Volume: *volume, Sections: *sections, Limit: *limit,
+		Parallel: common.config.Parallel, Mode: solveMode,
+		Candidates: common.config.Candidates, MaxCorrections: common.config.MaxCorrections,
+		RetryEmpty: *retryEmpty, NoPublish: *noPublish, NoCommit: *noCommit, DryRun: *dryRun,
+	}
+	for _, field := range []struct {
+		text  string
+		into  *time.Duration
+		named string
+	}{
+		{*commitInterval, &options.CommitInterval, "commit-interval"},
+		{*maxSleep, &options.MaxSleep, "max-sleep"},
+		{*drain, &options.Drain, "drain"},
+	} {
+		value, err := config.ParseDuration(field.text)
+		if err != nil {
+			return fmt.Errorf("--%s: %w", field.named, err)
+		}
+		*field.into = value
+	}
+
+	store := result.Store{Root: options.Output}
+	campaign := &runner.Runner{
+		Options:   options,
+		Store:     store,
+		Publisher: publish.New(options.Brain, options.Source, store),
+		Log:       runner.Logger(stderr, *asJSON),
+	}
+	if !*dryRun {
+		pool, err := common.pool(stderr)
+		if err != nil {
+			return err
+		}
+		campaign.Pool = pool
+		campaign.Engine = newEngine(common.config, pool, stderr)
+	}
+	if !*noCommit && !*dryRun {
+		committer := runner.NewCommitter(options.Brain)
+		committer.Lock = *lock
+		committer.Log = campaign.Log
+		campaign.Committer = committer
+	}
+
+	summary, err := campaign.Run(ctx)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return writeJSON(stdout, summary)
+	}
+	_, err = fmt.Fprintln(stdout, summary)
+	return err
+}
+
 // runCoverage answers which exercises are still missing, and where. The three
 // inputs are directories, so there is nothing to keep in sync and no cursor to
 // corrupt: every run recomputes the answer from what is on disk.
@@ -964,6 +1075,7 @@ Usage:
   taocp matrix [flags]
   taocp publish [SECTION NUMBER] [flags]
   taocp coverage [SECTION] [flags]
+  taocp run [flags]
   taocp bridge [flags]
   taocp doctor [flags]
   taocp version
