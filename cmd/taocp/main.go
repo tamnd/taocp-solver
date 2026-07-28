@@ -625,10 +625,10 @@ func newEngine(cfg config.Config, pool *route.Pool, stderr io.Writer) *solver.En
 		Repository: exercise.NewRepository(cfg.TAOCPRoot),
 		Client:     client,
 		Store:      result.Store{Root: cfg.OutputRoot},
-		Progress: func(message string) {
+		Progress: func(step solver.Progress) {
 			progressMu.Lock()
 			defer progressMu.Unlock()
-			_, _ = fmt.Fprintln(stderr, message)
+			_, _ = fmt.Fprintln(stderr, step)
 		},
 	}
 }
@@ -898,8 +898,16 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		if err != nil {
 			return err
 		}
+		// Everything a run says goes through one logger, so a week of screen
+		// output is one stream of timestamped lines rather than the runner's
+		// events with the engine's and the pool's chatter shuffled into them.
+		if pool != nil {
+			pool.Logf = campaign.Routing
+		}
+		engine := newEngine(common.config, pool, stderr)
+		engine.Progress = campaign.Step
 		campaign.Pool = pool
-		campaign.Engine = newEngine(common.config, pool, stderr)
+		campaign.Engine = engine
 	}
 	if !*noCommit && !*dryRun {
 		committer := runner.NewCommitter(options.Brain)

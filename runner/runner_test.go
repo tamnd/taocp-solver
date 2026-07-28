@@ -446,3 +446,41 @@ func coldPool(t *testing.T, window time.Duration) *route.Pool {
 	pool.Fail("test-route", &codex.QuotaError{ResetsAt: time.Now().Add(window), Message: "usage limit reached"})
 	return pool
 }
+
+// A run that is working and a run that has hung look identical in a log that
+// only reports finished solves, and a slow solve can take hours.
+func TestTheLogSaysWhatIsInFlight(t *testing.T) {
+	t.Parallel()
+	source, output, brain := tree(t)
+	writeExercise(t, source, "1.1", 1)
+
+	var mu sync.Mutex
+	var lines []string
+	run, _, _ := newRunner(t, Options{
+		Source: source, Output: output, Brain: brain, NoCommit: true,
+	})
+	run.Log = func(event Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, event.String())
+	}
+	run.Step(solver.Progress{Section: "1.1", Number: 1, Message: "checking correctness, pass 1"})
+	if _, err := run.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	run.Routing("codex-free is quota: the usage limit has been reached")
+
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"start 1.1/1 mode=",
+		"step 1.1/1 checking correctness, pass 1",
+		"route codex-free is quota: the usage limit has been reached",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("log has no %q line:\n%s", want, joined)
+		}
+	}
+	if strings.Index(joined, "start 1.1/1") > strings.Index(joined, "solve 1.1/1") {
+		t.Fatalf("the start line came after the solve it belongs to:\n%s", joined)
+	}
+}

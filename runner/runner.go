@@ -335,6 +335,10 @@ func (r *Runner) one(ctx context.Context, target coverage.Target) bool {
 	r.mu.Lock()
 	r.summary.Attempted++
 	r.mu.Unlock()
+	// A slow solve can run for hours, so the log has to say what is in flight
+	// rather than only what has finished. Otherwise a run that is working looks
+	// exactly like a run that has hung.
+	r.event(Event{Kind: KindStart, Section: target.Section, Number: target.Number, Mode: string(r.Options.Mode)})
 
 	value, err := r.Engine.Solve(ctx, target.Section, target.Number, solver.Options{
 		Mode:           r.Options.Mode,
@@ -474,6 +478,20 @@ func (r *Runner) commitOnce(ctx context.Context) {
 	r.summary.Commits++
 	r.summary.Files += files
 	r.mu.Unlock()
+}
+
+// Step logs one step of one solve. Hand it to the engine's progress hook: the
+// engine is shared by every worker, so the exercise has to travel with the
+// message or two parallel solves become one unreadable braid.
+func (r *Runner) Step(step solver.Progress) {
+	r.event(Event{Kind: KindStep, Section: step.Section, Number: step.Number, Message: step.Message})
+}
+
+// Routing logs a route changing state. Failover is the whole point of the pool
+// and it used to happen silently, which left a log where a run mysteriously
+// slowed down and nothing said why.
+func (r *Runner) Routing(format string, args ...any) {
+	r.event(Event{Kind: KindRoute, Message: fmt.Sprintf(format, args...)})
 }
 
 func (r *Runner) committing() bool {

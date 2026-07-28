@@ -251,10 +251,22 @@ taocp run --json                             # the log and the summary as JSON l
 ```
 
 ```text
-2026-07-25T14:02:11+07:00 solve 5.2.4/12 route=zen-free mode=slow verdict=PASS truth=true time=8m27s tokens=87309 cost=$0.19
-2026-07-25T14:02:12+07:00 publish 5.2.4/12 written indexes=1
-2026-07-25T14:10:00+07:00 commit 5 files pushed
+2026-07-25T14:02:11+07:00 start 5.2.4/12 mode=slow
+2026-07-25T14:02:11+07:00 step 5.2.4/12 building an independent reference
+2026-07-25T14:04:38+07:00 step 5.2.4/12 generating candidate 1 of 3
+2026-07-25T14:09:02+07:00 step 5.2.4/12 checking correctness, pass 1
+2026-07-25T14:10:44+07:00 solve 5.2.4/12 route=zen-free mode=slow verdict=PASS truth=true time=8m27s tokens=87309 cost=$0.19
+2026-07-25T14:10:45+07:00 publish 5.2.4/12 written indexes=1
+2026-07-25T14:12:03+07:00 route codex-free is quota: the usage limit has been reached, resets 2026-08-24 10:22 UTC
+2026-07-25T14:18:00+07:00 commit 5 files pushed
 ```
+
+Every line is one event, timestamped, naming the exercise it belongs to.
+That last part matters at `--parallel 2` or more: the engine is shared, so without the exercise on the line the two solves in flight braid into one unreadable stream.
+A slow solve can run for hours, so the `start` and `step` lines are how a run that is working tells itself apart from a run that has hung.
+
+Failover says so.
+A route going cold is the usual reason a campaign slows down overnight, and it used to happen silently.
 
 Everything it does is restartable.
 The queue is recomputed from the three directories on every pass, and each exercise is stored and published before the next one starts, so a run that is killed loses at most the exercise that was in flight.
@@ -267,7 +279,14 @@ When every route is cold the run sleeps until the earliest one returns, capped b
 
 SIGINT and SIGTERM stop the queue, let the solves already in flight finish for up to `--drain`, force a final commit, and exit zero.
 
-The commit messages are the ones the content repository's history already has, so replacing the shell scripts this came from does not read as a change of hands:
+A commit says what went into it.
+The runner publishes each proof as it lands, so most commits hold a single solution, and a subject line reading `Add 1 solution` says nothing the file count does not already say:
+
+```text
+Add taocp 5.2.4 exercise 12 [auto]
+```
+
+Past three, a list stops helping and the shape of the change is what a reader wants:
 
 ```text
 Add 5 solutions [auto]

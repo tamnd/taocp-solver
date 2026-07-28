@@ -65,7 +65,7 @@ type Runner struct {
 	Model          string
 	Candidates     int
 	MaxCorrections int
-	Progress       func(string)
+	Progress       func(solver.Progress)
 }
 
 func (r *Runner) Run(ctx context.Context, section string, number int) (Report, error) {

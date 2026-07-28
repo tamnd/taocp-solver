@@ -12,13 +12,16 @@ import (
 	"time"
 )
 
-// Event kinds. A run's whole log is these six lines, which is deliberate: a
+// Event kinds. A run's whole log is these few lines, which is deliberate: a
 // person reading a week of output should be able to grep it without a manual.
 const (
 	KindQueue   = "queue"
+	KindStart   = "start"
+	KindStep    = "step"
 	KindSolve   = "solve"
 	KindPublish = "publish"
 	KindCommit  = "commit"
+	KindRoute   = "route"
 	KindSleep   = "sleep"
 	KindError   = "error"
 )

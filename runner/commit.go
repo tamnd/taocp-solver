@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -116,14 +117,21 @@ func (c *Committer) push(ctx context.Context) error {
 	return last
 }
 
-// CommitMessage describes a staged change set the way the shell script this
-// replaces did, because the content repository's history should not visibly
-// change hands. It returns the message and the number of solution files in it.
+// named is how many solutions a title spells out before it gives up and counts
+// them instead. Three fits a terminal; a commit that touched forty exercises is
+// better described by its shape than by a list nobody will read.
+const named = 3
+
+// CommitMessage describes a staged change set. A run publishes one exercise at
+// a time, so most commits hold exactly one solution, and a subject line reading
+// "Add 1 solution" says nothing that the count of files does not already say.
+// When the change set is small enough to name, the subject names it.
 //
 // The input is `git diff --cached --name-status` output.
 func CommitMessage(nameStatus string) (string, int) {
 	added, updated := 0, 0
 	counts := map[string]int{}
+	var addedPaths, updatedPaths []string
 	for _, line := range strings.Split(nameStatus, "\n") {
 		fields := strings.Split(strings.TrimSpace(line), "\t")
 		if len(fields) < 2 || fields[0] == "" {
@@ -140,8 +148,10 @@ func CommitMessage(nameStatus string) (string, int) {
 		}
 		if strings.HasPrefix(status, "A") {
 			added++
+			addedPaths = append(addedPaths, path)
 		} else {
 			updated++
+			updatedPaths = append(updatedPaths, path)
 		}
 		counts[groupOf(path)]++
 	}
@@ -150,14 +160,31 @@ func CommitMessage(nameStatus string) (string, int) {
 	if total == 0 {
 		return "Update site content [auto]", 0
 	}
+	// One verb and few enough to list: say which ones. This is the common case,
+	// because the runner commits as each proof lands.
+	if total <= named && (added == 0 || updated == 0) {
+		verb, paths := "Add", addedPaths
+		if added == 0 {
+			verb, paths = "Update", updatedPaths
+		}
+		// Sort the paths, not the names they render to: pages are zero-padded so
+		// that they sort, and "exercise 10" sorts before "exercise 9".
+		sort.Strings(paths)
+		names := make([]string, 0, len(paths))
+		for _, path := range paths {
+			names = append(names, nameOf(path))
+		}
+		return fmt.Sprintf("%s %s [auto]\n", verb, strings.Join(names, ", ")), total
+	}
+
 	var title string
 	switch {
 	case added > 0 && updated > 0:
 		title = fmt.Sprintf("Add %d, update %d solutions [auto]", added, updated)
 	case added > 0:
-		title = fmt.Sprintf("Add %d solutions [auto]", added)
+		title = fmt.Sprintf("Add %s [auto]", plural(added, "solution"))
 	default:
-		title = fmt.Sprintf("Update %d solutions [auto]", updated)
+		title = fmt.Sprintf("Update %s [auto]", plural(updated, "solution"))
 	}
 
 	names := make([]string, 0, len(counts))
@@ -167,9 +194,30 @@ func CommitMessage(nameStatus string) (string, int) {
 	sort.Strings(names)
 	body := make([]string, 0, len(names))
 	for _, name := range names {
-		body = append(body, fmt.Sprintf("  %s: %d files", name, counts[name]))
+		body = append(body, fmt.Sprintf("  %s: %s", name, plural(counts[name], "file")))
 	}
 	return title + "\n\n" + strings.Join(body, "\n") + "\n", total
+}
+
+func plural(count int, noun string) string {
+	if count == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", count, noun)
+}
+
+// nameOf spells one published page the way someone reading the history would
+// ask for it: "taocp 5.2 exercise 12". A collection whose pages are not
+// numbered keeps its own name for them, so a Codeforces problem stays
+// "codeforces 103604 A" rather than becoming exercise A.
+func nameOf(path string) string {
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	group := groupOf(path)
+	// Pages are zero-padded so they sort, but nobody asks for exercise 09.
+	if number, err := strconv.Atoi(base); err == nil {
+		return fmt.Sprintf("%s exercise %d", group, number)
+	}
+	return group + " " + base
 }
 
 // groupOf names the collection a published page belongs to, as the history
