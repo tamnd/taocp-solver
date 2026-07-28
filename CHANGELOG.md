@@ -36,6 +36,8 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - Every git command runs under an advisory lock, so a second runner or a leftover cron job on the same host cannot interleave with it.
 - A run takes the host's route file from `TAOCP_ROUTES` or the default path without being passed a flag, so a machine configured by an environment file gets failover instead of demanding a single `--base-url`.
 - `--dry-run` prints the queue and touches nothing, and does not need a working endpoint to do it.
+- A review that comes back without its decision lines is asked again, up to three times, with the format restated. A reviewer refusing to sign its verdict used to discard a finished solution, which threw away the expensive half of an hour-long solve; on a weaker free model that was most of the campaign.
+- Decision lines are read through their decoration. A model that bolds, bullets, quotes, or puts a full stop after `VERDICT: PASS` has still decided, and losing a solve to a pair of asterisks is not a gate, it is a bug. A verdict mentioned mid-sentence is still rejected.
 - `make dist` cross-compiles a static Linux binary and `make deploy HOST=...` installs it with a systemd user unit, because a run host is not required to have a Go toolchain.
 
 ### Changed
