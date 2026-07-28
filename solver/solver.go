@@ -170,18 +170,22 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 		for iteration := 0; iteration <= options.MaxCorrections; iteration++ {
 			e.log(section, number, "checking correctness, pass %d", iteration+1)
 			instructions, input := e.Prompts.ReviewTruth(ex, sourceContext, reference, solution)
-			correctnessResponse, err := e.complete(ctx, "review-correctness", iteration, options.Model, instructions, input, ex)
+			correctnessText, err := e.reviewed(ctx, reviewCall{
+				phase: "review-correctness", iteration: iteration, options: options,
+				exercise: ex, section: section, number: number,
+				instructions: instructions, input: input,
+				usable: func(text string) bool {
+					got := textguard.ParseAssessment(text)
+					return textguard.Verdict(text) != "UNKNOWN" && textguard.Score(text) >= 0 && got.HasTruth && got.HasQuality
+				},
+				incomplete: errors.New("truth review has incomplete decision fields"),
+			}, &attempts)
 			if err != nil {
 				return result.Result{}, err
 			}
-			correctnessText := textguard.CleanGeneratedText(correctnessResponse.Text)
 			correctnessVerdict := textguard.Verdict(correctnessText)
 			correctnessScore := textguard.Score(correctnessText)
 			correctnessAssessment := textguard.ParseAssessment(correctnessText)
-			attempts = append(attempts, attempt("review-correctness", iteration, options.Model, correctnessResponse))
-			if correctnessVerdict == "UNKNOWN" || correctnessScore < 0 || !correctnessAssessment.HasTruth || !correctnessAssessment.HasQuality {
-				return result.Result{}, fmt.Errorf("truth review has incomplete decision fields")
-			}
 			qualityPassed := correctnessAssessment.Truth && correctnessAssessment.Complete &&
 				correctnessAssessment.SelfContained && correctnessAssessment.HumanReadable &&
 				correctnessAssessment.Verifiable && correctnessScore >= 6
@@ -191,17 +195,20 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 
 			e.log(section, number, "auditing the reasoning, pass %d", iteration+1)
 			instructions, input = e.Prompts.ReviewProcess(ex, sourceContext, solution)
-			processResponse, err := e.complete(ctx, "review-process", iteration, options.Model, instructions, input, ex)
+			processText, err := e.reviewed(ctx, reviewCall{
+				phase: "review-process", iteration: iteration, options: options,
+				exercise: ex, section: section, number: number,
+				instructions: instructions, input: input,
+				usable: func(text string) bool {
+					return textguard.Verdict(text) != "UNKNOWN" && textguard.ParseAssessment(text).HasTruth
+				},
+				incomplete: errors.New("audit review has no valid truth decision"),
+			}, &attempts)
 			if err != nil {
 				return result.Result{}, err
 			}
-			processText := textguard.CleanGeneratedText(processResponse.Text)
 			processVerdict := textguard.Verdict(processText)
 			processAssessment := textguard.ParseAssessment(processText)
-			attempts = append(attempts, attempt("review-process", iteration, options.Model, processResponse))
-			if processVerdict == "UNKNOWN" || !processAssessment.HasTruth {
-				return result.Result{}, fmt.Errorf("audit review has no valid truth decision")
-			}
 			if !processAssessment.Truth {
 				processVerdict = "FAIL"
 			}
@@ -334,6 +341,57 @@ func (e *Engine) complete(ctx context.Context, phase string, iteration int, mode
 		return api.Response{}, fmt.Errorf("%s TAOCP %s.%d: %w", phase, ex.SectionID, ex.Number, err)
 	}
 	return response, nil
+}
+
+// ReviewAttempts is how many times a review is asked for before the solve gives
+// up on it. A reviewer that will not print its decision is a reviewer problem,
+// and abandoning a finished candidate over it throws away the expensive half of
+// the work: generating the solution cost more than judging it will.
+const ReviewAttempts = 3
+
+// reviewReminder is appended when an answer came back without its decision
+// lines. It repeats the contract rather than restating the task, because the
+// model did the work and then failed to sign it.
+const reviewReminder = "\n\nYour previous answer was rejected because the decision lines were missing " +
+	"or malformed. Write every required line exactly as specified, one per line, " +
+	"bare: no bold, no bullets, no trailing punctuation, no commentary after the value."
+
+// reviewCall is one review call: what to ask, and what makes an answer usable.
+type reviewCall struct {
+	phase        string
+	iteration    int
+	options      Options
+	exercise     exercise.Exercise
+	section      string
+	number       int
+	instructions string
+	input        string
+	usable       func(text string) bool
+	incomplete   error
+}
+
+// reviewed runs a review until the answer carries the decisions the gate needs.
+// Every response is recorded, including the rejected ones, because they were
+// paid for and a token count that hid them would understate what the solve
+// cost.
+func (e *Engine) reviewed(ctx context.Context, spec reviewCall, attempts *[]result.Attempt) (string, error) {
+	instructions := spec.instructions
+	for try := 1; ; try++ {
+		response, err := e.complete(ctx, spec.phase, spec.iteration, spec.options.Model, instructions, spec.input, spec.exercise)
+		if err != nil {
+			return "", err
+		}
+		*attempts = append(*attempts, attempt(spec.phase, spec.iteration, spec.options.Model, response))
+		text := textguard.CleanGeneratedText(response.Text)
+		if spec.usable(text) {
+			return text, nil
+		}
+		if try == ReviewAttempts {
+			return "", spec.incomplete
+		}
+		e.log(spec.section, spec.number, "%s came back without its decision lines, asking again", spec.phase)
+		instructions = spec.instructions + reviewReminder
+	}
 }
 
 // withModel names the model only when the caller asked for one. Under a route

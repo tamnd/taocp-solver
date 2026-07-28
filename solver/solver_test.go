@@ -244,3 +244,53 @@ func fixtureRepository(t *testing.T) string {
 	}
 	return root
 }
+
+func TestAReviewerThatForgetsItsVerdictIsAskedAgain(t *testing.T) {
+	t.Parallel()
+	root := fixtureRepository(t)
+	client := &scriptedCompleter{responses: []string{
+		"Independent reference.",
+		"Solution.",
+		"The proof looks sound to me, and I would accept it.",
+		passingTruthReview,
+		"TRUTH: TRUE\nVERDICT: PASS",
+	}}
+	engine := &Engine{
+		Repository: exercise.NewRepository(root), Client: client,
+		Store: result.Store{Root: filepath.Join(t.TempDir(), "out")},
+	}
+	value, err := engine.Solve(context.Background(), "1.1", 1, Options{Model: "test", Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !value.Verified {
+		t.Fatalf("a solve lost a finished solution to a reviewer that would not sign it: %+v", value)
+	}
+	// The rejected answer was still paid for, so it is still counted.
+	if want := 5 * 130; value.Metrics.CurrentRun.Tokens.TotalTokens != want {
+		t.Fatalf("tokens = %d, want %d", value.Metrics.CurrentRun.Tokens.TotalTokens, want)
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if got := client.requests[3].Instructions; !strings.Contains(got, "rejected") {
+		t.Fatalf("the second ask did not say what was wrong with the first: %q", got)
+	}
+}
+
+func TestAReviewerThatNeverAnswersEndsTheSolve(t *testing.T) {
+	t.Parallel()
+	root := fixtureRepository(t)
+	responses := []string{"Independent reference.", "Solution."}
+	for range ReviewAttempts {
+		responses = append(responses, "Looks fine.")
+	}
+	client := &scriptedCompleter{responses: responses}
+	engine := &Engine{
+		Repository: exercise.NewRepository(root), Client: client,
+		Store: result.Store{Root: filepath.Join(t.TempDir(), "out")},
+	}
+	_, err := engine.Solve(context.Background(), "1.1", 1, Options{Model: "test", Verify: true})
+	if err == nil || !strings.Contains(err.Error(), "incomplete decision fields") {
+		t.Fatalf("err = %v", err)
+	}
+}
