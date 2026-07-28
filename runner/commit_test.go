@@ -274,3 +274,29 @@ func TestAGroupNameDropsTheVolumeDirectory(t *testing.T) {
 		}
 	}
 }
+
+// The stop signal decides whether the next commit starts, never whether the one
+// under way finishes. A cancellation landing between `git commit` and `git
+// push` would leave the working copy holding solutions the remote never saw.
+func TestAStopDoesNotChopACommitInHalf(t *testing.T) {
+	t.Parallel()
+	repo, remote := scratch(t)
+	write(t, filepath.Join(repo, "content/en/practice/maths/taocp/vol3/5.2.4/12.md"), "solution\n")
+
+	run := &Runner{
+		Options:   Options{Brain: repo, NoCommit: false},
+		Committer: committerFor(t, repo),
+		Log:       func(Event) {},
+	}
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	run.commitOnce(stopped)
+
+	head := strings.TrimSpace(mustGit(t, context.Background(), remote, "log", "-1", "--pretty=%s"))
+	if head != "Add taocp 5.2.4 exercise 12 [auto]" {
+		t.Fatalf("remote head = %q, want the solution the stop interrupted", head)
+	}
+	if run.summary.Commits != 1 {
+		t.Fatalf("summary counted %d commits, want 1", run.summary.Commits)
+	}
+}

@@ -48,6 +48,7 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 
 ### Fixed
 
+- A stop no longer interrupts a commit that is already under way. Cancellation decides whether the next commit starts; a signal landing between `git commit` and `git push` used to kill the sequence and leave the working copy holding solutions the remote had never seen.
 - A candidate line no longer ends in a dangling `with `. Under a route pool the request names no model, because which one answers is the pool's decision.
 - The route file test no longer reads whatever personal route file the developer happens to have, so it stops passing or failing by accident of the machine it runs on.
 

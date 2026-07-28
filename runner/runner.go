@@ -30,7 +30,10 @@ import (
 const (
 	DefaultCommitInterval = 10 * time.Minute
 	DefaultMaxSleep       = time.Hour
-	DefaultDrain          = 5 * time.Minute
+	// CommitTimeout bounds one whole git sequence: status, add, commit, fetch,
+	// merge, push.
+	CommitTimeout = 5 * time.Minute
+	DefaultDrain  = 5 * time.Minute
 )
 
 // Solver is the part of the engine a run needs. It is an interface so the loop
@@ -271,10 +274,9 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	stopWork()
 	committer.Wait()
 	if r.committing() {
-		// The drain context is spent by now, so the last commit gets its own.
-		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
-		r.commitOnce(final)
-		cancel()
+		// Whatever the drain left behind goes in now. commitOnce already ignores
+		// the spent context.
+		r.commitOnce(ctx)
 	}
 	r.mu.Lock()
 	summary := r.summary
@@ -464,6 +466,12 @@ func (r *Runner) commitLoop(ctx context.Context) {
 }
 
 func (r *Runner) commitOnce(ctx context.Context) {
+	// A git sequence is never chopped in half. Cancellation decides whether the
+	// next commit starts, not whether the one under way finishes: a stop that
+	// landed between `git commit` and `git push` would leave the content
+	// repository holding work the remote has never seen.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), CommitTimeout)
+	defer cancel()
 	files, err := r.Committer.Commit(ctx)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
