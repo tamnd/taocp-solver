@@ -76,6 +76,12 @@ type Options struct {
 	CommitInterval time.Duration
 	MaxSleep       time.Duration
 	Drain          time.Duration
+
+	// Lock is the advisory lock every write to the content repository runs
+	// under, publishing as well as committing. It is one lock rather than two
+	// because the thing being protected is the working copy, and a publish that
+	// overlapped a commit would be staged half written.
+	Lock string
 }
 
 // Normalize fills in the defaults so a zero Options is still a working run.
@@ -94,6 +100,9 @@ func (o *Options) Normalize() {
 	}
 	if o.Drain <= 0 {
 		o.Drain = DefaultDrain
+	}
+	if o.Lock == "" {
+		o.Lock = DefaultLock
 	}
 }
 
@@ -154,12 +163,8 @@ type Runner struct {
 	Now       func() time.Time
 	Sleep     func(ctx context.Context, d time.Duration) error
 
-	// publishing serialises the publisher, which rewrites index pages shared by
-	// every exercise in a volume. Two workers publishing at once would race on
-	// those files even though their solutions are unrelated.
-	publishing sync.Mutex
-	mu         sync.Mutex
-	summary    Summary
+	mu      sync.Mutex
+	summary Summary
 }
 
 // Queue is the work this run would do, in the order it would do it. It is
@@ -242,6 +247,10 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 
 	var committer sync.WaitGroup
 	if r.committing() {
+		// One lock for the working copy, so publishing and committing cannot be
+		// configured to exclude nothing. Letting the two be set separately is
+		// the kind of mistake that only shows up as a torn page months later.
+		r.Committer.Lock = r.Options.Lock
 		committer.Add(1)
 		go func() {
 			defer committer.Done()
@@ -399,18 +408,35 @@ func (r *Runner) one(ctx context.Context, target coverage.Target) bool {
 	if value.Solution == "" {
 		return false
 	}
-	r.publishOne(target)
+	r.publishOne(ctx, target)
 	return true
 }
 
 // publishOne renders this exercise, and only this exercise, so an interrupted
 // run leaves the content repository consistent rather than holding a batch.
-func (r *Runner) publishOne(target coverage.Target) {
+//
+// It runs under the content repository's advisory lock. Publishing rewrites the
+// index pages shared by every exercise in a volume, so two publishes at once
+// read the same index and one of them writes back a copy missing the other's
+// entry. That used to be a mutex, which held for the workers inside one run and
+// did nothing about a second runner or about the commit timer, both of which
+// touch the same working copy.
+func (r *Runner) publishOne(ctx context.Context, target coverage.Target) {
 	if r.Options.NoPublish || r.Publisher == nil {
 		return
 	}
-	r.publishing.Lock()
-	defer r.publishing.Unlock()
+	// The only thing that legitimately holds this lock is a commit, so wait out
+	// a whole one. Longer than that and the holder is wedged rather than busy,
+	// and saying so beats stalling a worker indefinitely.
+	locked, cancel := context.WithTimeout(context.WithoutCancel(ctx), CommitTimeout)
+	defer cancel()
+	release, err := acquire(locked, r.Options.Lock)
+	if err != nil {
+		r.event(Event{Kind: KindError, Section: target.Section, Number: target.Number,
+			Message: "publish: " + oneLine(err)})
+		return
+	}
+	defer release()
 	report, err := r.Publisher.Run([]publish.Target{{Section: target.Section, Number: target.Number}}, false)
 	if err != nil {
 		r.event(Event{Kind: KindError, Section: target.Section, Number: target.Number, Message: "publish: " + oneLine(err)})

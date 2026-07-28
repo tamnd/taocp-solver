@@ -869,6 +869,7 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		Parallel: common.config.Parallel, Mode: solveMode,
 		Candidates: common.config.Candidates, MaxCorrections: common.config.MaxCorrections,
 		RetryEmpty: *retryEmpty, NoPublish: *noPublish, NoCommit: *noCommit, DryRun: *dryRun,
+		Lock: *lock,
 	}
 	for _, field := range []struct {
 		text  string
@@ -910,8 +911,9 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		campaign.Engine = engine
 	}
 	if !*noCommit && !*dryRun {
+		// The lock comes from options: the run holds it for publishing too, and
+		// setting it in two places is how the two stop matching.
 		committer := runner.NewCommitter(options.Brain)
-		committer.Lock = *lock
 		committer.Log = campaign.Log
 		campaign.Committer = committer
 	}

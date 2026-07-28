@@ -125,6 +125,12 @@ func newRunner(t *testing.T, options Options) (*Runner, *fakeSolver, *fakePublis
 	store := result.Store{Root: options.Output}
 	engine := &fakeSolver{store: store}
 	publisher := &fakePublisher{}
+	if options.Lock == "" {
+		// Normalize would otherwise reach for the real lock in /tmp, which is
+		// shared on purpose, and the tests would contend with any runner that
+		// happens to be going on this machine.
+		options.Lock = filepath.Join(t.TempDir(), "git.lock")
+	}
 	return &Runner{
 		Options: options, Store: store, Engine: engine, Publisher: publisher,
 		Log:   func(Event) {},
@@ -482,5 +488,59 @@ func TestTheLogSaysWhatIsInFlight(t *testing.T) {
 	}
 	if strings.Index(joined, "start 1.1/1") > strings.Index(joined, "solve 1.1/1") {
 		t.Fatalf("the start line came after the solve it belongs to:\n%s", joined)
+	}
+}
+
+// slowPublisher blocks inside Run so a test can hold a publish open and see
+// whether anything else gets into the working copy while it is there.
+type slowPublisher struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (p *slowPublisher) Run([]publish.Target, bool) (publish.Report, error) {
+	p.once.Do(func() { close(p.entered) })
+	<-p.release
+	return publish.Report{Written: 1}, nil
+}
+
+func TestACommitWaitsForAPublishToFinish(t *testing.T) {
+	t.Parallel()
+	lock := filepath.Join(t.TempDir(), "git.lock")
+	repo, _ := scratch(t)
+
+	publisher := &slowPublisher{entered: make(chan struct{}), release: make(chan struct{})}
+	run := &Runner{
+		Options:   Options{Brain: repo, Lock: lock},
+		Publisher: publisher,
+		Log:       func(Event) {},
+	}
+	run.Options.Normalize()
+
+	go run.publishOne(context.Background(), coverage.Target{Section: "1.1", Number: 1})
+	<-publisher.entered
+
+	// The publish is in flight and holding the lock. A commit starting now
+	// would stage whatever the publisher has written so far, so it has to wait.
+	committer := committerFor(t, repo)
+	committer.Lock = lock
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = committer.Commit(context.Background())
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("the commit ran while a publish held the working copy")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(publisher.release)
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the commit never ran after the publish let go")
 	}
 }

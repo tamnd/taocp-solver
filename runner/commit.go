@@ -100,11 +100,17 @@ func (c *Committer) push(ctx context.Context) error {
 			last = err
 			continue
 		}
-		// Ours is the newer render of the same page, so where the two disagree
-		// the local side wins. A merge that stopped for a conflict would leave
-		// an unattended runner wedged.
+		// A merge that stopped for a conflict would leave an unattended runner
+		// wedged, so one side has to win outright. It is the local one: this
+		// working copy holds the render that was just published, and the pages
+		// that actually conflict are the generated indexes, which the next
+		// publish rewrites from the merged tree anyway.
+		//
+		// In a merge "ours" is the branch being merged into, so the flag that
+		// keeps the local side is -X ours. This read -X theirs, which is the
+		// opposite, and quietly reverted a page the run had just written.
 		merge := fmt.Sprintf("%s/%s", c.remote(), c.branch())
-		if _, err := c.git(ctx, "merge", "-X", "theirs", merge, "-m", "Merge brain [auto]"); err != nil {
+		if _, err := c.git(ctx, "merge", "-X", "ours", merge, "-m", "Merge brain [auto]"); err != nil {
 			last = err
 			continue
 		}
