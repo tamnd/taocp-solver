@@ -38,6 +38,8 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - `--dry-run` prints the queue and touches nothing, and does not need a working endpoint to do it.
 - A review that comes back without its decision lines is asked again, up to three times, with the format restated. A reviewer refusing to sign its verdict used to discard a finished solution, which threw away the expensive half of an hour-long solve; on a weaker free model that was most of the campaign.
 - Decision lines are read through their decoration. A model that bolds, bullets, quotes, or puts a full stop after `VERDICT: PASS` has still decided, and losing a solve to a pair of asterisks is not a gate, it is a bug. A verdict mentioned mid-sentence is still rejected.
+- A provider message is condensed to one line before it is logged or tabulated. A gateway that is down answers with an HTML error page, and twenty lines of markup in a detail field made both the run log and `doctor`'s table unreadable.
+- A failover is logged once. The pool and the completer were both reporting it, so every failure arrived as the same sentence twice.
 - `make dist` cross-compiles a static Linux binary and `make deploy HOST=...` installs it with a systemd user unit, because a run host is not required to have a Go toolchain.
 
 ### Changed

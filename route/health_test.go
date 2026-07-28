@@ -260,3 +260,20 @@ func TestProbeRejectsAnInvalidRoute(t *testing.T) {
 		t.Fatalf("health = %+v", health)
 	}
 }
+
+func TestAGatewayErrorPageStaysOnOneLine(t *testing.T) {
+	t.Parallel()
+	page := "chat completions API returned 502 Bad Gateway: <!DOCTYPE html>\n<html>\n<head>\n<title>502</title>\n</head>\n" +
+		strings.Repeat("<div>the gateway is down</div>\n", 40)
+	for name, detail := range map[string]string{
+		"transport": classifyTransport(errors.New(page)).Detail,
+		"body":      Classify(502, page, nil).Detail,
+	} {
+		if strings.Contains(detail, "\n") {
+			t.Errorf("%s detail is %d lines, and a log with markup in it is unreadable", name, strings.Count(detail, "\n")+1)
+		}
+		if len(detail) > 210 {
+			t.Errorf("%s detail is %d characters, which is a paragraph rather than a log line", name, len(detail))
+		}
+	}
+}

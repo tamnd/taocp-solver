@@ -112,7 +112,7 @@ func classifyTransport(err error) Signal {
 	if errors.Is(err, context.Canceled) {
 		return Signal{State: StateUnknown, Detail: err.Error()}
 	}
-	text := err.Error()
+	text := condense(err.Error())
 	lower := strings.ToLower(text)
 	switch {
 	case containsAny(lower, goneMarkers):
@@ -179,14 +179,22 @@ func firstMessage(body, fallback string) string {
 			return text
 		}
 	}
-	text := strings.TrimSpace(body)
-	if text == "" {
-		return fallback
+	if text := condense(body); text != "" {
+		return text
 	}
+	return fallback
+}
+
+// condense makes a provider message fit one log line and one table cell. A
+// gateway that is down answers with an HTML error page, and a detail field
+// holding twenty lines of markup turns doctor's table and a run's log into
+// something nobody can read.
+func condense(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
 	if len(text) > 200 {
 		text = text[:200] + "..."
 	}
-	return strings.Join(strings.Fields(text), " ")
+	return text
 }
 
 // probePrompt is fixed and trivial on purpose. Probing the whole registry

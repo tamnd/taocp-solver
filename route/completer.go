@@ -21,18 +21,11 @@ type Completer struct {
 	// not a retry count: transient retries against a single route stay with
 	// the transport, where the delays the provider advertises are known.
 	Attempts int
-	Logf     func(string, ...any)
 }
 
 // NewCompleter wraps a pool.
 func NewCompleter(pool *Pool) *Completer {
-	return &Completer{Pool: pool, Attempts: 3, Logf: pool.Logf}
-}
-
-func (c *Completer) logf(format string, args ...any) {
-	if c.Logf != nil {
-		c.Logf(format, args...)
-	}
+	return &Completer{Pool: pool, Attempts: 3}
 }
 
 func (c *Completer) Complete(ctx context.Context, request api.Request) (api.Response, error) {
@@ -66,7 +59,8 @@ func (c *Completer) Complete(ctx context.Context, request api.Request) (api.Resp
 			}
 			c.Pool.Fail(chosen.Name, err)
 			failures = append(failures, fmt.Sprintf("%s (%s)", chosen.Name, oneLine(err)))
-			c.logf("route %s failed, moving on: %s", chosen.Name, oneLine(err))
+			// No log line here: Fail already reported the route and the cause,
+			// and two lines per failover said the same thing twice.
 			continue
 		}
 		c.Pool.Succeed(chosen.Name)
