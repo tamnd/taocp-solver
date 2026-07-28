@@ -245,6 +245,7 @@ It takes the coverage queue, solves it, publishes each proof as it lands, and co
 ```sh
 taocp run --dry-run                          # print the queue, touch nothing
 taocp run --volume 3 --parallel 2            # one volume, two exercises at a time
+taocp run --parallel auto                    # as many as the route says it will take
 taocp run --section 5.2.4 --section 5.2.5    # a named slice of the work
 taocp run --limit 10 --mode fast             # a short pass
 taocp run --json                             # the log and the summary as JSON lines
@@ -264,6 +265,15 @@ taocp run --json                             # the log and the summary as JSON l
 Every line is one event, timestamped, naming the exercise it belongs to.
 That last part matters at `--parallel 2` or more: the engine is shared, so without the exercise on the line the two solves in flight braid into one unreadable stream.
 A slow solve can run for hours, so the `start` and `step` lines are how a run that is working tells itself apart from a run that has hung.
+
+How wide to run is a question for the endpoint, not for this machine.
+`--parallel auto` asks the route it is about to use, reading the fan-out it publishes at `/v1/health`, and falls back to the count on the command line when nothing answers.
+The number to guess from is whatever the endpoint is limited by, and only the endpoint can see that; a host that marshals JSON and waits has no idea.
+It asks the highest ranked route rather than adding the routes up, because that is the one the whole run leans on until it falls over.
+
+More than one run at a time is safe on one content repository.
+Publishing and committing take the same advisory lock, so a commit can never stage a page that is halfway written, and pages are replaced by a rename rather than a truncate.
+Where two runs did touch the same page, the merge keeps the local render and the next publish rebuilds the indexes from the merged tree.
 
 Failover says so.
 A route going cold is the usual reason a campaign slows down overnight, and it used to happen silently.

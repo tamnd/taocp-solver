@@ -811,6 +811,55 @@ func runPublish(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// autoParallel is the spelling that hands the decision to the endpoint.
+const autoParallel = "auto"
+
+// parseParallel reads --parallel. It reports the count to use and whether that
+// count is only a fallback, which is the case when the caller said auto and the
+// routes have not been asked yet.
+func parseParallel(text string) (int, bool, error) {
+	text = strings.TrimSpace(text)
+	if strings.EqualFold(text, autoParallel) {
+		// One until the routes say otherwise. Guessing high and finding out
+		// later would have the first pass already over-subscribed.
+		return 1, true, nil
+	}
+	count, err := strconv.Atoi(text)
+	if err != nil || count < 1 {
+		return 0, false, fmt.Errorf("--parallel: want a positive count or %q, got %q", autoParallel, text)
+	}
+	return count, false, nil
+}
+
+// askFanOut asks the endpoints how many exercises to run at once, falling back
+// to the given count when none of them answers.
+//
+// The endpoint is the side that knows. It is the one in front of whatever the
+// run is actually limited by, and it can see how much of that there is; this
+// host only marshals JSON and waits. Where nothing is published the fallback
+// stands, because a run that guesses low is slow and one that guesses high
+// piles up work the endpoint queues anyway.
+func askFanOut(ctx context.Context, pool *route.Pool, common *commonFlags, fallback int, stderr io.Writer) int {
+	routes := []route.Route{}
+	switch {
+	case pool != nil:
+		routes = pool.Routes()
+	case strings.TrimSpace(common.config.BaseURL) != "":
+		// No route file, just a --base-url. It is still an endpoint and can
+		// still have an opinion.
+		single := route.AdHoc(common.config.BaseURL, common.config.Model, "", "")
+		single.APIKey = common.config.APIKey
+		routes = append(routes, single)
+	}
+	size, name := route.Advertised(ctx, routes, 10*time.Second)
+	if size < 1 {
+		_, _ = fmt.Fprintf(stderr, "no route publishes a fan-out, solving %d at once\n", fallback)
+		return fallback
+	}
+	_, _ = fmt.Fprintf(stderr, "solving %d at once, which is what %s says it will take\n", size, name)
+	return size
+}
+
 // runRun is the unattended campaign: work the coverage queue until it is empty,
 // publishing each proof as it lands and committing the content repository on a
 // timer. It is meant to be started in a screen session or under systemd and
@@ -834,7 +883,19 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	maxSleep := fs.String("max-sleep", runner.DefaultMaxSleep.String(), "longest wait when every route is cold")
 	drain := fs.String("drain", runner.DefaultDrain.String(), "how long to let in-flight solves finish after a stop signal")
 	lock := fs.String("lock", runner.DefaultLock, "advisory lock the content repository's git commands run under")
-	fs.IntVar(&common.config.Parallel, "parallel", defaults.Parallel, "exercises solved at once")
+	// A count or "auto". Auto asks the routes how much they will take at once,
+	// which is a question about the endpoint rather than about this host: the
+	// numeric default guesses from the local core count, and a machine that
+	// only marshals JSON and waits is not what limits a run.
+	parallelDefault := strconv.Itoa(defaults.Parallel)
+	// A host is configured from an environment file rather than a wrapper
+	// script, so auto has to be sayable there too. FromEnv parses the variable
+	// as a number and cannot see this spelling of it.
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("TAOCP_SOLVER_PARALLEL")), autoParallel) {
+		parallelDefault = autoParallel
+	}
+	parallel := fs.String("parallel", parallelDefault,
+		"exercises solved at once, or auto to use what the route says it will take")
 	fs.IntVar(&common.config.Candidates, "candidates", defaults.Candidates, "independent solution candidates per exercise")
 	fs.IntVar(&common.config.MaxCorrections, "max-corrections", defaults.MaxCorrections, "correction passes per exercise")
 	if err := fs.Parse(args); err != nil {
@@ -863,10 +924,14 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	if err != nil {
 		return err
 	}
+	fanOut, auto, err := parseParallel(*parallel)
+	if err != nil {
+		return err
+	}
 	options := runner.Options{
 		Source: common.config.TAOCPRoot, Output: common.config.OutputRoot, Brain: *brain,
 		Volume: *volume, Sections: *sections, Limit: *limit,
-		Parallel: common.config.Parallel, Mode: solveMode,
+		Parallel: fanOut, Mode: solveMode,
 		Candidates: common.config.Candidates, MaxCorrections: common.config.MaxCorrections,
 		RetryEmpty: *retryEmpty, NoPublish: *noPublish, NoCommit: *noCommit, DryRun: *dryRun,
 		Lock: *lock,
@@ -904,6 +969,11 @@ func runRun(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		// events with the engine's and the pool's chatter shuffled into them.
 		if pool != nil {
 			pool.Logf = campaign.Routing
+		}
+		if auto {
+			// After the pool, because the answer comes from the routes. A dry
+			// run never gets here and does not need it: it solves nothing.
+			campaign.Options.Parallel = askFanOut(ctx, pool, common, fanOut, stderr)
 		}
 		engine := newEngine(common.config, pool, stderr)
 		engine.Progress = campaign.Step

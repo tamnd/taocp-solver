@@ -280,6 +280,19 @@ func (p *Pool) Names() []string {
 	return out
 }
 
+// Routes lists the routes the pool holds, in the order it will try them. It is
+// for callers that need the endpoints themselves rather than the pool's opinion
+// of them, such as asking the top one how much work it will take.
+func (p *Pool) Routes() []Route {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]Route, 0, len(p.entries))
+	for _, value := range p.entries {
+		out = append(out, value.route)
+	}
+	return out
+}
+
 // ProbeAll checks every route, including disabled ones the caller kept, and
 // returns the results in rank order. It is what doctor prints.
 func (p *Pool) ProbeAll(ctx context.Context) []Health {
