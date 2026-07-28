@@ -30,7 +30,9 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 - A stored result with no solution is a tombstone: the exercise stays out of the queue until `--retry-empty` asks for it, which is what stops a week-long run from spending every pass on the same unsolvable exercise.
 - When every route is cold the run sleeps until the earliest one returns, capped by `--max-sleep`, instead of exiting and losing the campaign to a quota window.
 - SIGINT and SIGTERM stop the queue, let the solves already in flight finish for up to `--drain`, force a final commit, and exit zero.
-- The generated commit messages are the ones the content repository's history already has, down to the per-section file counts, so replacing the shell scripts does not show up as a change of hands.
+- A commit says which solutions went into it. The runner publishes each proof as it lands, so most commits hold one exercise, and `Add 1 solution` said nothing the file count did not. Past three the subject falls back to counts with a per-section breakdown.
+- A run logs what is in flight, not only what has finished. Every solve reports its start and each step it reaches, and every line names its exercise, because the engine is shared and at `--parallel 2` two solves otherwise braid into one unreadable stream.
+- A route changing state is logged. Failover is the pool's whole purpose and it used to happen silently, which left a log where a campaign slowed down overnight and nothing said why.
 - Every git command runs under an advisory lock, so a second runner or a leftover cron job on the same host cannot interleave with it.
 - A run takes the host's route file from `TAOCP_ROUTES` or the default path without being passed a flag, so a machine configured by an environment file gets failover instead of demanding a single `--base-url`.
 - `--dry-run` prints the queue and touches nothing, and does not need a working endpoint to do it.
@@ -46,6 +48,8 @@ All notable changes to `taocp` are recorded here. The project follows Semantic V
 
 ### Fixed
 
+- A stop no longer interrupts a commit that is already under way. Cancellation decides whether the next commit starts; a signal landing between `git commit` and `git push` used to kill the sequence and leave the working copy holding solutions the remote had never seen.
+- A candidate line no longer ends in a dangling `with `. Under a route pool the request names no model, because which one answers is the pool's decision.
 - The route file test no longer reads whatever personal route file the developer happens to have, so it stops passing or failing by accident of the machine it runs on.
 
 ## [0.1.0] - 2026-07-20

@@ -322,3 +322,23 @@ func TestTableRendersEveryRow(t *testing.T) {
 		}
 	}
 }
+
+// A route that fails a real call is the way quota is usually discovered: the
+// probe passed, the solve did not. That used to be recorded silently, which
+// left a log where the run slowed down and nothing said why.
+func TestARealCallFailureIsLogged(t *testing.T) {
+	t.Parallel()
+	pool, _ := testPool(t, liveRoute(t, "primary", 10), liveRoute(t, "fallback", 30))
+	var logged []string
+	pool.Logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+
+	pool.Fail("primary", errors.New("429: the usage limit has been reached"))
+	pool.Fail("nobody", errors.New("no such route"))
+
+	if len(logged) != 1 {
+		t.Fatalf("logged %v, want one line for the route that exists", logged)
+	}
+	if !strings.Contains(logged[0], "primary") || !strings.Contains(logged[0], "quota") {
+		t.Errorf("log = %q, want the route and why", logged[0])
+	}
+}

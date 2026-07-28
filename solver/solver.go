@@ -33,12 +33,25 @@ const (
 	ModeSlow Mode = "slow"
 )
 
+// Progress is one step of one solve. It names the exercise separately from the
+// message because several solves share an engine: with two workers running,
+// a line that only says "checking correctness, pass 1" belongs to nobody.
+type Progress struct {
+	Section string
+	Number  int
+	Message string
+}
+
+func (p Progress) String() string {
+	return fmt.Sprintf("TAOCP %s.%d: %s", p.Section, p.Number, p.Message)
+}
+
 type Engine struct {
 	Repository *exercise.Repository
 	Client     api.Completer
 	Prompts    prompt.Builder
 	Store      result.Store
-	Progress   func(string)
+	Progress   func(Progress)
 }
 
 func (e *Engine) Solve(ctx context.Context, section string, number int, options Options) (result.Result, error) {
@@ -60,7 +73,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 		return result.Result{}, fmt.Errorf("unknown solve mode %q", options.Mode)
 	}
 	started := time.Now()
-	e.log("loading TAOCP %s.%d", section, number)
+	e.log(section, number, "loading the exercise")
 	ex, sourceContext, err := e.Repository.Load(section, number)
 	if err != nil {
 		return result.Result{}, err
@@ -79,7 +92,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 	var reference, selection string
 	selected := 0
 	if options.Verify {
-		e.log("building an independent reference for TAOCP %s.%d", section, number)
+		e.log(section, number, "building an independent reference")
 		instructions, input := e.Prompts.Reference(ex, sourceContext)
 		response, err := e.complete(ctx, "reference", 0, options.Model, instructions, input, ex)
 		if err != nil {
@@ -94,7 +107,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 	if !options.Force {
 		cached, err := e.Store.Load(section, number)
 		if err == nil && cached.Solution != "" {
-			e.log("using cached solution for TAOCP %s.%d", section, number)
+			e.log(section, number, "using the cached solution")
 			solution = cached.Solution
 			candidates = []result.Candidate{{Number: 1, Solution: solution}}
 			selected = 1
@@ -117,7 +130,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 		}
 		candidateTexts := make([]string, 0, candidateCount)
 		for i := 1; i <= candidateCount; i++ {
-			e.log("generating candidate %d/%d for TAOCP %s.%d with %s", i, candidateCount, section, number, options.Model)
+			e.log(section, number, "generating candidate %d of %d%s", i, candidateCount, withModel(options.Model))
 			instructions, input := e.Prompts.SolveCandidate(ex, sourceContext, i)
 			response, err := e.complete(ctx, "solve-candidate", i, options.Model, instructions, input, ex)
 			if err != nil {
@@ -133,7 +146,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 		}
 		selected = 1
 		if len(candidateTexts) > 1 {
-			e.log("selecting from %d candidates for TAOCP %s.%d", len(candidateTexts), section, number)
+			e.log(section, number, "selecting from %d candidates", len(candidateTexts))
 			instructions, input := e.Prompts.Select(ex, reference, candidateTexts)
 			response, err := e.complete(ctx, "select", 0, options.Model, instructions, input, ex)
 			if err != nil {
@@ -155,7 +168,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 	evaluation := result.Evaluation{Verdict: "SKIPPED"}
 	if options.Verify {
 		for iteration := 0; iteration <= options.MaxCorrections; iteration++ {
-			e.log("checking correctness for TAOCP %s.%d, pass %d", section, number, iteration+1)
+			e.log(section, number, "checking correctness, pass %d", iteration+1)
 			instructions, input := e.Prompts.ReviewTruth(ex, sourceContext, reference, solution)
 			correctnessResponse, err := e.complete(ctx, "review-correctness", iteration, options.Model, instructions, input, ex)
 			if err != nil {
@@ -176,7 +189,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 				correctnessVerdict = "FAIL"
 			}
 
-			e.log("auditing reasoning for TAOCP %s.%d, pass %d", section, number, iteration+1)
+			e.log(section, number, "auditing the reasoning, pass %d", iteration+1)
 			instructions, input = e.Prompts.ReviewProcess(ex, sourceContext, solution)
 			processResponse, err := e.complete(ctx, "review-process", iteration, options.Model, instructions, input, ex)
 			if err != nil {
@@ -216,7 +229,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 				break
 			}
 
-			e.log("correcting TAOCP %s.%d, pass %d", section, number, iteration+1)
+			e.log(section, number, "correcting, pass %d", iteration+1)
 			instructions, input = e.Prompts.Correct(ex, sourceContext, solution, review)
 			correctionResponse, err := e.complete(ctx, "correct", iteration, options.Model, instructions, input, ex)
 			if err != nil {
@@ -252,7 +265,7 @@ func (e *Engine) Solve(ctx context.Context, section string, number int, options 
 	if err := e.Store.Save(value); err != nil {
 		return result.Result{}, err
 	}
-	e.log("saved TAOCP %s.%d with verdict %s", section, number, verdict)
+	e.log(section, number, "saved with verdict %s", verdict)
 	return value, nil
 }
 
@@ -323,9 +336,19 @@ func (e *Engine) complete(ctx context.Context, phase string, iteration int, mode
 	return response, nil
 }
 
-func (e *Engine) log(format string, args ...any) {
+// withModel names the model only when the caller asked for one. Under a route
+// pool the request carries no model, because which one answers is the pool's
+// decision, and the old line ended in a dangling "with ".
+func withModel(model string) string {
+	if model == "" {
+		return ""
+	}
+	return " with " + model
+}
+
+func (e *Engine) log(section string, number int, format string, args ...any) {
 	if e.Progress != nil {
-		e.Progress(fmt.Sprintf(format, args...))
+		e.Progress(Progress{Section: section, Number: number, Message: fmt.Sprintf(format, args...)})
 	}
 }
 

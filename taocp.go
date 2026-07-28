@@ -73,8 +73,8 @@ func WithProgress(writer io.Writer) Option {
 			client.Engine.Progress = nil
 			return
 		}
-		client.Engine.Progress = func(message string) {
-			_, _ = fmt.Fprintln(writer, message)
+		client.Engine.Progress = func(step solver.Progress) {
+			_, _ = fmt.Fprintln(writer, step)
 		}
 	}
 }

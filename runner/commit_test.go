@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestTheCommitMessageMatchesTheHistoryItInherits(t *testing.T) {
+func TestTheCommitMessageSaysWhatWentIn(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name       string
@@ -26,7 +26,7 @@ func TestTheCommitMessageMatchesTheHistoryItInherits(t *testing.T) {
 				"M\tcontent/en/practice/maths/taocp/vol4/7.2.1.3/_index.md",
 				"M\tcontent/en/practice/maths/taocp/vol4/_index.md",
 			}, "\n"),
-			want:  "Add 2 solutions [auto]\n\n  taocp 7.2.1.3: 2 files\n",
+			want:  "Add taocp 7.2.1.3 exercise 9, taocp 7.2.1.3 exercise 10 [auto]\n",
 			files: 2,
 		},
 		{
@@ -43,7 +43,7 @@ func TestTheCommitMessageMatchesTheHistoryItInherits(t *testing.T) {
 		{
 			name:       "only updates",
 			nameStatus: "M\tcontent/en/practice/maths/taocp/vol1/1.2.1/08.md",
-			want:       "Update 1 solutions [auto]\n\n  taocp 1.2.1: 1 files\n",
+			want:       "Update taocp 1.2.1 exercise 8 [auto]\n",
 			files:      1,
 		},
 		{
@@ -52,8 +52,21 @@ func TestTheCommitMessageMatchesTheHistoryItInherits(t *testing.T) {
 				"A\tcontent/en/practice/maths/taocp/vol3/5.2.4/12.md",
 				"A\tcontent/en/practice/codeforces/103604/D.md",
 			}, "\n"),
-			want:  "Add 2 solutions [auto]\n\n  codeforces 103604: 1 files\n  taocp 5.2.4: 1 files\n",
+			want:  "Add codeforces 103604 D, taocp 5.2.4 exercise 12 [auto]\n",
 			files: 2,
+		},
+		{
+			// Past a handful, a list stops helping and the shape of the change
+			// is what a reader wants.
+			name: "too many to name falls back to counts",
+			nameStatus: strings.Join([]string{
+				"A\tcontent/en/practice/maths/taocp/vol3/5.3.4/01.md",
+				"A\tcontent/en/practice/maths/taocp/vol3/5.3.4/02.md",
+				"A\tcontent/en/practice/maths/taocp/vol3/5.3.4/03.md",
+				"A\tcontent/en/practice/maths/taocp/vol3/5.3.4/04.md",
+			}, "\n"),
+			want:  "Add 4 solutions [auto]\n\n  taocp 5.3.4: 4 files\n",
+			files: 4,
 		},
 		{
 			// A rebuild that only touched index pages is real work, but calling
@@ -152,7 +165,7 @@ func TestACommitLandsOnTheRemote(t *testing.T) {
 		t.Fatalf("files = %d, want 1", files)
 	}
 	log := mustGit(t, context.Background(), remote, "log", "--format=%s", "-n", "1")
-	if strings.TrimSpace(log) != "Add 1 solutions [auto]" {
+	if strings.TrimSpace(log) != "Add taocp 5.2.4 exercise 12 [auto]" {
 		t.Fatalf("remote head = %q", strings.TrimSpace(log))
 	}
 }
@@ -259,5 +272,31 @@ func TestAGroupNameDropsTheVolumeDirectory(t *testing.T) {
 		if got := groupOf(path); got != want {
 			t.Errorf("groupOf(%q) = %q, want %q", path, got, want)
 		}
+	}
+}
+
+// The stop signal decides whether the next commit starts, never whether the one
+// under way finishes. A cancellation landing between `git commit` and `git
+// push` would leave the working copy holding solutions the remote never saw.
+func TestAStopDoesNotChopACommitInHalf(t *testing.T) {
+	t.Parallel()
+	repo, remote := scratch(t)
+	write(t, filepath.Join(repo, "content/en/practice/maths/taocp/vol3/5.2.4/12.md"), "solution\n")
+
+	run := &Runner{
+		Options:   Options{Brain: repo, NoCommit: false},
+		Committer: committerFor(t, repo),
+		Log:       func(Event) {},
+	}
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	run.commitOnce(stopped)
+
+	head := strings.TrimSpace(mustGit(t, context.Background(), remote, "log", "-1", "--pretty=%s"))
+	if head != "Add taocp 5.2.4 exercise 12 [auto]" {
+		t.Fatalf("remote head = %q, want the solution the stop interrupted", head)
+	}
+	if run.summary.Commits != 1 {
+		t.Fatalf("summary counted %d commits, want 1", run.summary.Commits)
 	}
 }

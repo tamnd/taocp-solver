@@ -30,7 +30,10 @@ import (
 const (
 	DefaultCommitInterval = 10 * time.Minute
 	DefaultMaxSleep       = time.Hour
-	DefaultDrain          = 5 * time.Minute
+	// CommitTimeout bounds one whole git sequence: status, add, commit, fetch,
+	// merge, push.
+	CommitTimeout = 5 * time.Minute
+	DefaultDrain  = 5 * time.Minute
 )
 
 // Solver is the part of the engine a run needs. It is an interface so the loop
@@ -271,10 +274,9 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	stopWork()
 	committer.Wait()
 	if r.committing() {
-		// The drain context is spent by now, so the last commit gets its own.
-		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
-		r.commitOnce(final)
-		cancel()
+		// Whatever the drain left behind goes in now. commitOnce already ignores
+		// the spent context.
+		r.commitOnce(ctx)
 	}
 	r.mu.Lock()
 	summary := r.summary
@@ -335,6 +337,10 @@ func (r *Runner) one(ctx context.Context, target coverage.Target) bool {
 	r.mu.Lock()
 	r.summary.Attempted++
 	r.mu.Unlock()
+	// A slow solve can run for hours, so the log has to say what is in flight
+	// rather than only what has finished. Otherwise a run that is working looks
+	// exactly like a run that has hung.
+	r.event(Event{Kind: KindStart, Section: target.Section, Number: target.Number, Mode: string(r.Options.Mode)})
 
 	value, err := r.Engine.Solve(ctx, target.Section, target.Number, solver.Options{
 		Mode:           r.Options.Mode,
@@ -460,6 +466,12 @@ func (r *Runner) commitLoop(ctx context.Context) {
 }
 
 func (r *Runner) commitOnce(ctx context.Context) {
+	// A git sequence is never chopped in half. Cancellation decides whether the
+	// next commit starts, not whether the one under way finishes: a stop that
+	// landed between `git commit` and `git push` would leave the content
+	// repository holding work the remote has never seen.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), CommitTimeout)
+	defer cancel()
 	files, err := r.Committer.Commit(ctx)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -474,6 +486,20 @@ func (r *Runner) commitOnce(ctx context.Context) {
 	r.summary.Commits++
 	r.summary.Files += files
 	r.mu.Unlock()
+}
+
+// Step logs one step of one solve. Hand it to the engine's progress hook: the
+// engine is shared by every worker, so the exercise has to travel with the
+// message or two parallel solves become one unreadable braid.
+func (r *Runner) Step(step solver.Progress) {
+	r.event(Event{Kind: KindStep, Section: step.Section, Number: step.Number, Message: step.Message})
+}
+
+// Routing logs a route changing state. Failover is the whole point of the pool
+// and it used to happen silently, which left a log where a run mysteriously
+// slowed down and nothing said why.
+func (r *Runner) Routing(format string, args ...any) {
+	r.event(Event{Kind: KindRoute, Message: fmt.Sprintf(format, args...)})
 }
 
 func (r *Runner) committing() bool {

@@ -119,7 +119,7 @@ func (p *Pool) next(ctx context.Context) (Route, error) {
 		}
 		p.applyLocked(chosen, Signal{State: health.State, Detail: health.Detail, ResetsAt: health.ResetsAt})
 		p.mu.Unlock()
-		p.logf("route %s is %s: %s", candidate.Name, health.State, health.Detail)
+		p.logf("%s is %s: %s", candidate.Name, health.State, health.Detail)
 	}
 }
 
@@ -129,8 +129,8 @@ func (p *Pool) Fail(name string, err error) {
 		return
 	}
 	signal := classifyTransport(err)
+	found := false
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	for _, value := range p.entries {
 		if value.route.Name != name {
 			continue
@@ -140,7 +140,14 @@ func (p *Pool) Fail(name string, err error) {
 			ResetsAt: signal.ResetsAt, Model: value.route.Model, CheckedAt: p.now(),
 		}
 		p.applyLocked(value, signal)
-		return
+		found = true
+		break
+	}
+	p.mu.Unlock()
+	if found {
+		// Outside the lock: the callback belongs to the caller and may do
+		// anything, including come back into the pool.
+		p.logf("%s is %s: %s", name, signal.State, signal.Detail)
 	}
 }
 
