@@ -446,3 +446,76 @@ func TestRunPicksUpTheRouteFileTheHostAlreadyHas(t *testing.T) {
 		t.Fatalf("the run did not pick up the route file:\n%s", stderr.String())
 	}
 }
+
+func TestParallelTakesACountOrAuto(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		text  string
+		count int
+		auto  bool
+		bad   bool
+	}{
+		{text: "4", count: 4},
+		{text: " 4 ", count: 4},
+		{text: "auto", count: 1, auto: true},
+		{text: "AUTO", count: 1, auto: true},
+		{text: "0", bad: true},
+		{text: "-1", bad: true},
+		{text: "many", bad: true},
+		{text: "", bad: true},
+	} {
+		count, auto, err := parseParallel(c.text)
+		if c.bad {
+			if err == nil {
+				t.Fatalf("%q: want an error, got %d", c.text, count)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%q: %v", c.text, err)
+		}
+		if count != c.count || auto != c.auto {
+			t.Fatalf("%q = %d auto=%v, want %d auto=%v", c.text, count, auto, c.count, c.auto)
+		}
+	}
+}
+
+func TestAutoAsksTheEndpointHowMuchToRunAtOnce(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/health" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"ok","pool":{"concurrency":6}}`))
+	}))
+	defer server.Close()
+
+	var stderr bytes.Buffer
+	common := &commonFlags{config: config.Config{BaseURL: server.URL, Model: "m"}}
+	// Fallback 2, which is what the old core-count guess would have produced.
+	// The endpoint knows better and its answer has to win.
+	if got := askFanOut(context.Background(), nil, common, 2, &stderr); got != 6 {
+		t.Fatalf("fan-out = %d, want the 6 the endpoint published", got)
+	}
+	if !strings.Contains(stderr.String(), "solving 6 at once") {
+		t.Fatalf("the run did not say where the number came from: %q", stderr.String())
+	}
+}
+
+func TestAutoFallsBackWhenNothingPublishesAFanOut(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	var stderr bytes.Buffer
+	common := &commonFlags{config: config.Config{BaseURL: server.URL, Model: "m"}}
+	if got := askFanOut(context.Background(), nil, common, 3, &stderr); got != 3 {
+		t.Fatalf("fan-out = %d, want the fallback 3", got)
+	}
+	if !strings.Contains(stderr.String(), "no route publishes a fan-out") {
+		t.Fatalf("the run did not say it was falling back: %q", stderr.String())
+	}
+}

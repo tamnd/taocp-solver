@@ -208,11 +208,11 @@ func TestTheRemoteMovingFirstIsMergedRatherThanRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// -X theirs resolves in favour of the branch being merged in, which from
-	// inside the merge is the remote side. What matters for the runner is that
-	// the merge completed without stopping for a person.
-	if len(body) == 0 {
-		t.Fatal("the merged page is empty")
+	// The merge has to complete without stopping for a person, and it has to
+	// keep the page this run just published. Resolving the other way looks fine
+	// in a log and silently throws away the solve that was paid for.
+	if got := strings.TrimSpace(string(body)); got != "our proof" {
+		t.Fatalf("merged page = %q, want the local render", got)
 	}
 	log := mustGit(t, ctx, check, "log", "--format=%s", "-n", "3")
 	if !strings.Contains(log, "Merge brain [auto]") {

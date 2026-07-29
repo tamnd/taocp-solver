@@ -321,10 +321,7 @@ func (p Publisher) write(value result.Result, path string, date time.Time, check
 	if check {
 		return true, false, images, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, false, nil, fmt.Errorf("create section directory: %w", err)
-	}
-	if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
+	if err := writeFile(path, []byte(page)); err != nil {
 		return false, false, nil, fmt.Errorf("write solution %s: %w", path, err)
 	}
 	return true, false, images, nil
@@ -661,13 +658,48 @@ func writeIfChanged(path, page string, check bool) (bool, error) {
 	if check {
 		return true, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, fmt.Errorf("create directory for %s: %w", path, err)
-	}
-	if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
+	if err := writeFile(path, []byte(page)); err != nil {
 		return false, fmt.Errorf("write %s: %w", path, err)
 	}
 	return true, nil
+}
+
+// writeFile replaces a page in one step, by writing a neighbouring temporary
+// file and renaming it over the target.
+//
+// A plain write truncates first and fills in afterwards, which leaves a window
+// where the file on disk is neither the old page nor the new one. Nothing
+// notices while a single run has the tree to itself, but the runner's commit
+// timer fires on its own goroutine and `git add -A` will happily stage a page
+// caught halfway through, and a second runner publishing into the same
+// repository widens the window to whatever the disk is doing. Rename is atomic
+// on the platforms this runs on, so a reader sees one page or the other.
+func writeFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	// The temporary file has to share a directory with the target, because a
+	// rename across filesystems is not a rename. Publishing runs in parallel,
+	// so the name has to be unique rather than derived from the target.
+	temporary, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	name := temporary.Name()
+	defer func() { _ = os.Remove(name) }()
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	// CreateTemp makes the file 0600, and a published page has to be readable
+	// by whatever serves the site.
+	if err := os.Chmod(name, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }
 
 func exists(path string) bool {
@@ -710,10 +742,7 @@ func copyIfChanged(from, to string, check bool) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("read image %s: %w", from, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
-		return false, fmt.Errorf("create directory for %s: %w", to, err)
-	}
-	if err := os.WriteFile(to, data, 0o644); err != nil {
+	if err := writeFile(to, data); err != nil {
 		return false, fmt.Errorf("write image %s: %w", to, err)
 	}
 	return true, nil
